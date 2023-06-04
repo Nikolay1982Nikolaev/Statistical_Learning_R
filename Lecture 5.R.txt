@@ -1,0 +1,310 @@
+M <- glm(default~balance+income+student,
+         family = binomial)
+round(summary(M)$coef,4)
+
+# to compare with simple logistic model
+# with a qualitative regressor:
+M0 <- glm(default~student,
+         family = binomial)
+round(summary(M0)$coef,4)
+# interpration: students tend to have a higher
+# prob of default, regardless of income and balance
+# level. But students tend to have lower default
+# probability for a given level of income and 
+# balance
+M <- glm(default~balance+student,
+          family = binomial)
+# now: predict prob of default given that
+# you are a student, as a function of balance:
+p.yes <- predict(M,data.frame(student="Yes",
+                              balance=500:2500),
+                 type="response")
+# similarly, we can predict the prob of default
+# as a function of balance for a non-student:
+p.no  <- predict(M,data.frame(student="No",
+                              balance=500:2500),
+                 type="response")
+plot(500:2500,p.yes,type="l",lwd=2,col=1)  
+lines(500:2500,p.no,lwd=2,col=2) 
+# the two curve are P(def|student,balance) and
+# P(def|not student,balance)
+M0 <- glm(default~student,family = binomial)
+p.yes.unc <-predict(M0,data.frame(student="Yes"),
+                    type="response")
+# above: def prob of student 
+# (unconditional to balance)
+p.no.unc <-predict(M0,data.frame(student="No"),
+                    type="response")
+abline(h=p.yes.unc,col=1,lwd=2)
+abline(h=p.no.unc,col=2,lwd=2)
+
+# One of the limitations of logistic regression
+# is that it is able to classify only data
+# with 2 categories, that is with K=2 classes
+# For classification with K>=2 classes, we move
+# to another method called discriminant analysis
+# But: it also exists a multiple-class logistic
+# regression, called multinomial logistic regression
+# (use the R package multinom)
+
+# Discriminant analysis: linear discriminant analysis
+# (LDA) and quadratic discriminant analysis (QDA)
+
+# Intuition behind LDA: find the best linear 
+# combination of Xs, that best separates the classes
+# Tightly connected to the Bayes theorem: it
+# assigns a unit to the class showing highest
+# posterior probability. 
+# For K classes, we have:
+# 1. likelihood part: a density function for 
+#    Y given that you are in a specific class
+#    f_k(Y) for observation Y given that we are 
+#    in group k, k=1,...,K
+# 2. prior part: prior distribution pi(k)
+#    of group 1,...,K
+
+# Example of LDA:
+# 1. population example, where I pretend to know
+# the parameters
+set.seed(1234)
+mu1 <- -1.25 # mean in population 1
+mu2 <- +1.25 # mean in population 2
+sig <- 1     # common population variance
+pi1 <- pi2 <- 0.5 # prior probs
+plot(function(x)dnorm(x,mu1),from=-5,to=5,lwd=2,col=1)
+plot(function(x)dnorm(x,mu2),from=-5,to=5,lwd=2,
+     col=2,add=TRUE)
+# overlap between f_k(x) is problematic, since it
+# make more difficult to correctly classify units
+abline(v=(mu1+mu2)/2,lwd=3)
+
+# 2. sample example. In practice:
+s1 <- rnorm(20,mu1) # sample from pop 1
+s2 <- rnorm(20,mu2) # sample from pop 2
+h1 <- hist(s1,plot=FALSE)
+h2 <- hist(s2,plot=FALSE)
+plot(h1,col=4,xlim=c(-5,5))
+plot(h2,col=2,xlim=c(-5,5),add=TRUE)
+abline(v=(mu1+mu2)/2,lwd=3,col=2) # true mid-point
+abline(v=(mean(s1)+mean(s2))/2,lwd=3) # estimated mid
+
+# see the book for multivariate extension (to more Xs)
+# --> move to multiviate normal for f_k(X1,X2,..,Xp)
+# example of multivariate LDA:
+# with 2 Xs and K=3 classes.
+Sigma <- matrix(c(1,0.5,0.5,1),2,2) # common variance
+mu1   <- c(-1.25,-1.25)  # pop mean class 1
+mu2   <- c(+1.25,-1.25)  # pop mean class 2
+mu3   <- c(-1.25,+1.25)  # pop mean class 3
+# Generate some data from these classes:
+s1 <- mvtnorm::rmvnorm(20,mu1,Sigma) # from class 1
+s2 <- mvtnorm::rmvnorm(20,mu2,Sigma) # from class 2
+s3 <- mvtnorm::rmvnorm(20,mu3,Sigma) # from class 3
+
+x1 <- rbind(s1,s2,s3)[,1] # all obs of first X
+x2 <- rbind(s1,s2,s3)[,2] # all obs of second X
+y  <- rep(1:3,each=20) # observed classes
+
+lda.fit <- MASS::lda(y~x1+x2)
+y.hat <- predict(lda.fit)$class # we see some mistakes
+mean(y!=y.hat)  #overall error rate
+sum(y!=y.hat) # num of mistakes
+
+# on e-learning: dowload the classplot function
+# for the classification output
+# 1st input: fitted model
+# 2nd input: data
+# 3rd input: name of dependent variable
+classplot(lda.fit,data.frame(x1,x2,y),class="y")
+# straight lines discriminate among groups, since
+# in LDA, the common variance assumption cancels
+# from the determinantion of the discriminant
+# function the quadratic term in x
+
+# apply LDA to Default dataset:
+library(MASS)
+lda.fit <- lda(default~balance+student,
+               data=Default)
+lda.pred <- predict(lda.fit)
+lda.class <- lda.pred$class
+# to compare true and estimated classes:
+table(lda.class,Default$default) # estimate,truth
+# to get the so-called "confusion matrix"
+addmargins(table(lda.class,Default$default))
+# I see two types of mistakes:
+# 1. I predict a Yes (a default) but the truth is
+#    No default (2nd row, 1st col)
+# --> 23 cases
+# 2. you predict No but the truth is Yes (row1,col2)
+# --> 252 cases
+# the overall error rate is (23+252)/10000 = 2.75%
+# Sometimes, you may be interested in 
+# class-specific performance measures: sensitivity
+# and specificity.
+# Sensitivity: proportion of true Yes which
+# are correctly predicted, aka true positive rate
+# In the example: 81/333 = 24.3%
+# Specificity: proportion of true No which
+# are correctly predicted, aka true negative rate
+# In the example, 9644/9667 = 99.8%
+
+# In LDA with 2 classes I predict "Yes" if
+# P(Yes|x) > 0.5, since in this case, 
+# P(Yes|x) > P(No|x).
+# --> you can decrease cut-off ro better detect 
+# the true Yes --> now easier to detect true Yes
+# --> I expect an improvement in the true
+# positive rate.
+# We now implement LDA with a lower cut-off for
+# the posterior probability:
+# We change the cutoff from 0.5 to 0.2, say
+to.yes <- lda.pred$posterior[,"Yes"]>0.2
+lda.class[to.yes] <- "Yes"
+addmargins(table(lda.class,Default$default))
+# Sensitivity (true positive rate) is now
+# 195/333 = 58.6%, an improvement over the 
+# previous 24.4% with the prvious cutoff of 0.5
+# Specificity (true negative rate) is now
+# 9432/9667 = 97.57%, slighlty worse than before
+# The overall rate (before 2.75%) now becomes
+# (235+138)/10000 = 3.73%, a little worse than before
+
+
+# Example on trade-off in error rates
+# as we change the threshold in the posterior
+ths <- seq(0,0.5,length=20) # thresholds to try
+err.rate <- c() # for overall rate
+err.yes <- c() # for errors among true Yes
+               # (false negatives)
+err.no <- c() # for error among true No 
+               # (false positives)
+for(th in ths){
+  lda.class <- rep("No",10000) # class initial
+  # overall error rate:
+  to.yes <- lda.pred$posterior[,"Yes"] > th
+  lda.class[to.yes] <- "Yes"
+  err.rate.cur <- mean(lda.class!=Default$default)
+  
+  # error rate among true Yes:
+  true.yes <- Default$default=="Yes"
+  err.yes.cur <- mean(lda.class[true.yes]=="No")
+  
+  # error rate among true No:
+  true.no <- Default$default=="No"
+  err.no.cur <- mean(lda.class[true.no]=="Yes")
+  
+  # build the output:
+  err.rate <- c(err.rate,err.rate.cur)
+  err.yes  <- c(err.yes,err.yes.cur)
+  err.no   <- c(err.no,err.no.cur)
+}
+plot(ths,err.rate,type="l",lwd=2)
+lines(ths,err.yes,col=2,lwd=2)
+lines(ths,err.no,col=3,lwd=2)
+
+# results depend on the chosen threshold
+# --> we now introduce a performance measure
+# that does not depend on this threshold
+# --> ROC curve (Receiver Operating Characteristics)
+# to show the two class-specific performances 
+# for all ths, and we associate to the ROC a single
+# number that give a measure of performance that
+# is valid for all ths: AUC (Area Under Curve)
+# In the example:
+library(pROC)
+# We need the true class and the associated
+# (estimated) posterior probability of being
+# in that class
+response <- rep(0,10000)
+response[true.yes] <- 1
+predictor <- lda.pred$posterior[,"Yes"]
+plot.roc(response,predictor,
+         print.auc=TRUE,legacy.axes=TRUE)
+# x-axis: false positive rate (1-true negative rate)
+# y-axis: true positive rate
+# a better ROC is towards top left part of the graph
+# In this case AUC improves (higher)
+
+# On the quadratic discriminant analysis (QDA)
+# We now remove assumption of common variance
+# (no detail on derivation of discriminant function)
+
+# Simulated example for comparison LDA / QDA
+# First example: When true Sigma is common
+set.seed(12345)
+Sigma <- matrix(c(1,0.7,0.7,1),2,2) # common var
+muA   <- c(-1.25,-1.25)  # mean in pop A
+muB   <- c(+1.25,+1.25)  # mean in pop B
+library(mvtnorm)
+xA <- rmvnorm(200,muA,Sigma) # sample from pop A
+xB <- rmvnorm(200,muB,Sigma) # sample from pop B
+x1 <- c(xA[,1],xB[,1]) # all obs of first covariate
+x2 <- c(xA[,2],xB[,2]) # all obs of second covariate
+y  <- rep(c("A","B"),each=200) # observed classes
+
+lda.fit <- lda(y~x1+x2) # LDA
+qda.fit <- qda(y~x1+x2) # QDA
+classplot(lda.fit,data.frame(x1,x2,y),class="y")
+classplot(qda.fit,data.frame(x1,x2,y),class="y")
+
+mean(predict(lda.fit)$class!=y) # overall error rate
+mean(predict(lda.fit)$class[y=="A"]=="B") # false B rate
+mean(predict(lda.fit)$class[y=="B"]=="A") # false A rate
+
+plot.roc(y,predict(lda.fit)$posterior[,"A"],
+         print.auc=TRUE,legacy.axes=TRUE)
+
+
+mean(predict(qda.fit)$class!=y) # overall error rate
+mean(predict(qda.fit)$class[y=="A"]=="B") # false B rate
+mean(predict(qda.fit)$class[y=="B"]=="A") # false A rate
+
+plot.roc(y,predict(qda.fit)$posterior[,"A"],
+         print.auc=TRUE,legacy.axes=TRUE)
+# no improvement in using QDA over LDA, since
+# the true data come frm a population with
+# common variance
+
+# try yourself a scenario where the data
+# are generated from two classes having 
+# different variances, and compare lda and qda
+
+# Now: comparison in a simulated scenario of
+# different classifiers: logistic, LDA, QDA and 
+# KNN classification. 
+# Just one word on KNN classification: assign
+# to the point of interest the class most 
+# observed for the K closest observations 
+# (local modal category)
+# We are using a Scenario called "scenario 1"
+# in the book, where normal covariates with no
+# correlation
+
+# Generate the data
+muA <- c(-1.25,-1.25)  # mean pop A
+muB <- c(+1.25,+1.25)  # mean pop B
+sA  <- rmvnorm(20,muA,diag(2,2)) # sample from pop A
+sB  <- rmvnorm(20,muB,diag(2,2)) # sample from pop B
+s   <- rbind(sA,sB) # whole sample
+s1  <- s[,1] # first covariate
+s2  <- s[,2] # second covariate
+
+y <- rep(c("A","B"),each=20) # generated classes
+
+# the above is the training sample we will use
+# to estimate the various methods, now we 
+# generate some large test sample we wil use
+# only for the purpose of evaluating their
+# performances
+sA.test  <- rmvnorm(5000,muA,diag(2,2)) # sample from pop A
+sB.test  <- rmvnorm(5000,muB,diag(2,2)) # sample from pop B
+s.test   <- rbind(sA.test,sB.test) # whole sample
+s1.test  <- s.test[,1] # first covariate
+s2.test  <- s.test[,2] # second covariate
+y.test <- rep(c("A","B"),each=5000) # generated classes
+
+# data frame with all the data:
+data.tot <- data.frame(y=as.factor(c(y,y.test)),
+                       s1=c(s1,s1.test),
+                       s2=c(s2,s2.test))
+dim(data.tot)

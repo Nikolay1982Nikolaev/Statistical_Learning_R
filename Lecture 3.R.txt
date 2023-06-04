@@ -1,0 +1,378 @@
+# Q3: How well the model fits the data?
+D <- read.csv("../data/Advertising.csv")
+head(D)
+# sales approx b0+b1*TV
+# b0 = intercept
+# b1 = slope
+# find linear relationship that best explains dependence
+# in (x1,y1), (x2,y2),...
+D <- D[,-1] # remove first column
+M.all <- lm(sales~.,data=D) 
+summary(M.all)$r.squared # R^2
+
+# Q4: on the prediction. We have a OLS plane
+M.radioTV <- lm(sales~.-newspaper,data=D)
+# but keep in mind that
+# a) estimation error: OLS plane does not coincide
+#  with population plan
+# b) model error: f(x) chosen is not a good
+#  approx of the reality
+# c) irreducible error: even if you know perfectly 
+#  f(x), i cannot exactly predict Y becuase of
+# the variability of eps (Y=f(x)+eps)
+predict(M.radioTV,data.frame(TV=100,
+                             radio=20,
+                             newspaper=100),
+        level=0.95,interval="confidence")
+# to predict E(Y), for a given X. 
+# I predict average sales (over a number of cities)
+# for a given level of investments
+predict(M.radioTV,data.frame(TV=100,
+                             radio=20,
+                             newspaper=100),
+        level=0.95,interval="prediction")
+# to predict single Y for given X
+
+# back to our bivariate regression:
+M <- lm(sales~TV+radio,data=D)
+betas <- M$coefficients
+x <- seq(min(D$TV),max(D$TV),length=30)
+y <- seq(min(D$radio),max(D$radio),length=30)
+f <- function(x,y)
+  betas[1]+betas[2]*x+betas[3]*y # y.hat for Xs
+z <- outer(x,y,f)
+plot.lm <- plot3D::persp3D(x,y,z,theta=20,
+                           phi=0,col=2,xlab="TV",
+                           ylab="radio",
+                           zlab="sales")
+mypoints <- trans3d(D$TV,D$radio,D$sales,plot.lm)
+points(mypoints,lwd=2)
+
+# Other considerations: qualitative predictors
+# Often datasets with categorical rvs (factors)
+# We need to create dummy variables
+# we can use the dataset Credit in ISLR
+?Credit
+table(Credit$Gender) # distribut of the gender
+# now we create a dummy associated to Gender
+contrasts(Credit$Gender)
+# X_i = 1 if the i-th unit is female
+# X_i = 0 if the i-th unit is male
+# E(Y|X)=beta0+beta1*X
+# E(Y|X)=beta0+beta1*1=beta0+beta1 when female
+# E(Y|X)=beta0+beta1*0=beta0       when male
+# beta0 is the expected Y for males
+# beta1 is the expected difference of females vs males
+# if Y= credit balance, then
+# beta0 is the expected balance of a male
+# beta1 is the expected balance difference
+M <- lm(Balance~Gender,data=Credit)
+summary(M)
+# beta0 = 509.80 (for males)
+# beta1 = 19.73  (for diff females-males)
+# balance seems higher for females, but pvalue,
+# but this difference is not significant
+# The coding 1 for females and 0 for males
+# is arbitrary. Alternative coding (less used):
+# x_i = 1  if i-th is female
+# x_i = -1 if i-th is male
+# Now: beta0 = common part of the mean 
+# (both for males and females)
+# beta1 = deviation from common mean beta0 
+# upwards (for females) or downwards (for males)
+# E(Y)=beta0+beta1X
+# E(Y)=beta0+beta1 for females
+# E(Y)=beta0-beta1 for males
+
+# When  you have a categorical rv with more than 
+# two levels, you need more dummies. For instance:
+table(Credit$Ethnicity)
+# now: 3 levels and then we need 2 dummies.
+# In general, with k levels, you need k-1 dummies
+contrasts(Credit$Ethnicity)
+# beta0 is the expected Y for african american
+# beta1 is the expected difference in Y for a Asian
+# relative to african american
+# beta2 is the expected difference in Y for a Caucasian
+# relative to african american
+# African american is the baseline category
+M <- lm(Balance~Ethnicity,data=Credit)
+round(summary(M)$coeff,4)
+# no significant differences among balances
+# of the various ethnicities
+
+################################
+# Extensions of the linear model
+################################
+# Two important assumptions: additivity and linearity
+# in the relationship between Xs and Y
+# Additivity: the effect of changes of Xi on Y
+# does not depend on Xj, for j<>i
+# Linearity: the effect of changes of Xi on Y
+# does not depend on Xi
+
+# Remove the addivity assumption.
+# Back to the advertising dataset
+# it may be that investing in radio also increases
+# the effectivness of investing in TV,
+# the slope linking sales and radio may change for
+# different values of TV
+# In a marketing language: there is synergy between
+# investments in TV and radio, for which splitting
+# the same amount of investments in two media is
+# preferred to the same amount in just one medium
+# In a statistical language: we introduce an
+# interaction effect, a new predictor given by
+# the product of two Xs interacting
+M <- lm(sales~TV*radio,data=D)
+# to introduce interaction between TV and radio
+round(summary(M)$coeff,4)
+# form the output, we see that pval of test
+# H0: interaction=0 vs H1: bilateral is very small
+# --> slope between TV and sales affected by radio
+# --> slope between radio and sales affected by TV
+# interaction>0 --> synergy
+# E(Y) =b0+b1*TV+b2*radio+b3*TV*radio
+#      =b0+(b1+b3*radio)*TV+b2*radio
+#      =b0+b1*TV+(b2+b3*TV)*radio
+
+# This concept of interaction applies also to
+# combinations of quantitative and qualitative rvs:
+# Back to the Credit dataset, I want to predict
+# balance with income (quantitative) and student
+# (qualitative)
+table(Credit$Student)
+# With no interaction between income and student,
+# in the two categories the regression population
+# lines can only differ  in their intercept,
+# but they are bounded to have the same slope
+M1 <- lm(Balance~Income+Student,data=Credit)
+plot(0,xlim=c(0,150),ylim=c(200,1500),type="n",
+     xlab="Income",ylab="Balance",
+     main="No interaction")
+M1
+abline(M1$coef[1],M1$coef[2],lwd=3) 
+  # OLS line for not students
+abline(M1$coef[1]+M1$coef[3],M1$coef[2],lwd=3,col=2) 
+# OLS line for students
+# This limitation (of parallel regression lines)
+# can be overcome with the interaction effect:
+M2 <- lm(Balance~Income*Student,data=Credit)
+plot(0,xlim=c(0,150),ylim=c(200,1500),type="n",
+     xlab="Income",ylab="Balance",
+     main="With interaction")
+abline(M2$coef[1],M2$coef[2],lwd=3) 
+# OLS line for not students
+M2
+abline(M2$coef[1]+M2$coef[3],
+       M2$coef[2]+M2$coef[4],lwd=3,col=2) 
+# OLS line for students
+# slope for students lower than slope for
+# not students. This suggests that an increase in
+# income is associated to a smaller increase for
+# students, compared to non-students
+
+# Now remove the second assumption of linearity.
+# A simple way to remove it ans still using lm
+# is with the polynomial regression
+attach(Auto)
+?Auto
+plot(horsepower,mpg)
+# there is a pronounced relationship
+# clearly not linear
+# Simple approach: include non-linear transformations
+# of X. The plot seems to suggest a quadratic
+# relationship --> include horsepower^2
+# care: we are still in re context of a linear model
+# since now we have created a new rv
+# z:=horsepower^2, and then
+# f(x)=b0+b1*horsepower+b1*z
+M.lin <- lm(mpg~horsepower)
+abline(M.lin,col=1,lwd=3)
+M.quad <- lm(mpg~horsepower+I(horsepower^2))
+M.quad.pred <- predict(M.quad,
+   data.frame(horsepower=sort(horsepower)))
+lines(sort(horsepower),M.quad.pred,col=2,lwd=3)
+
+M.five <- lm(mpg~horsepower+I(horsepower^2)+
+               I(horsepower^3)+I(horsepower^4)+
+               I(horsepower^5))
+M.five.pred <- predict(M.five,
+ data.frame(horsepower=sort(horsepower)))
+lines(sort(horsepower),M.five.pred,col=3,lwd=3)
+
+summary(M.quad)$coef
+
+# Potential problems after fitting lm:
+# 1. f(x) not linear
+# 2. correlation of error terms
+#   (against the assumption of iid error terms)
+# 3. non-constant error variance
+#   (heteroskedasticity)
+# 4. outliers
+# 5. high-leverage points
+# 6. collinearity
+
+# 1. to detect some possible nonlinearity still
+# not considered in the model, look at
+# the residual plot, that is scatterplot of
+# residuals vs X (in simple regressions)
+# or of residuals vs yhat.
+# From Normal equation you expect this plot to be
+# without any pattern. If you see some regularities,
+# for instance a U-shape cloud of points, then
+# you may need to reconsider your model
+
+# 2. Correlated errors
+# This is a problem, since all standard deviations
+# of the parameter estimators have benn computed
+# under the iid assumption, and therefore if errors
+# are on the otehr hand correlated, these stds are
+# underestimated
+# Consequence: t-value = estimates /std are 
+# inflated --> you may be induced to reject the 
+# H0 of zero-effect when H0 is true
+# In other terms, I wrongly detect significant 
+# predictors
+# When this happens? In time series, but also
+# in other cases, for instance when a part of a
+# sample is made of members of the same family, 
+# it could be that their heights are correlated
+# To detect this problem: plot obs index vs
+# residual, and there should be no pattern in it
+
+# Simulated example on correlated errors
+# We first define a function for generating error
+# for a given correlation.
+gen.eps <- function(n,rho){
+  # INPUTS: n = num of extractions
+  #         rho = correlation
+  eps <- rep(0,n) # vec to fill
+  eps[1] <- rnorm(1)  # 1st error
+  for(i in 2:n)
+    eps[i]<-rnorm(1)+rho*eps[i-1]
+  return(eps)
+}
+# to see what happens when I increase rho:
+par(mfrow=c(2,1))
+# case with rho = 0
+x <- rnorm(100)  # regressors
+y <- x+gen.eps(100,0) # dependent rv
+M1 <- lm(y~x)
+plot(resid(M1),type="b")
+abline(h=0,lwd=2)
+# case with rho = 0.9
+x <- rnorm(100)  # regressors
+y <- x+gen.eps(100,0.9) # dependent rv
+M2 <- lm(y~x)
+plot(resid(M2),type="b")
+abline(h=0,lwd=2)
+# in the second plot positive residuals tend to
+# be followed by positive residuals and the same
+# negative
+
+# to more formally test correlation in errors
+# use durbinWatsonTest in the package car
+
+# 3. Non-constant error variance
+# To detect: look at so-called funnel shapes
+# in the residual plot (yhat vs resid)
+# Possible solution: transform Y, typically
+# to log(Y) or to sqrt(Y)
+par(mfrow=c(1,2))
+x <- rnorm(1000) # regressors
+y <- exp((1+x+rnorm(1000))/2)
+# non-linear generation of data, where the error
+# is multiplicative and then you introduce
+# higher errors for higher Xs
+M <- lm(y~x)
+plot(fitted(M),resid(M))
+# example of residual plot showing a funnel
+
+y.tr <- log(y)  # transformed y
+M <- lm(y.tr~x) # new lm
+plot(fitted(M),resid(M))
+# in this artificial example, I know that with
+# the log transformation I go back to a linear
+# model with additive noise. In reality, you
+# may use the Box-Cox transformation, to find
+# the best tranformation of y for which error
+# is with constant variance
+# For instance, in the package caret you may
+# find the function BoxCoxTrans
+
+# Sometimes you have a precise idea of how
+# error variance changes
+# --> use the weighted least squares, again
+# available with lm, using the option weights
+
+# 4. Outliers
+# Def: a unit i for which y_i is far from yhat_i
+# (big residual_i)
+# One reason: error in recording data
+# More serious: not a mistake and can suggest
+# the presence of small portion of "contaminated"
+# data that are generated from a different 
+# process, relative to the majority of data
+# --> mixture of models
+# Simulated example:
+x <- rnorm(50) # regressors
+y <- 1+x+0.75*rnorm(50) # true model
+x <- c(x,1)  # add a new x
+y <- c(y,10) # add a new y
+M <- lm(y~x)
+plot(x,y)
+abline(M,col=2,lwd=2)
+# the outlier appears anomalous in y
+# re-run lm without the outlier:
+M2 <- lm(y[-51]~x[-51])
+abline(M2,col=3,lwd=3)
+# the effect on OLS line can be negligible,
+# still outliers should be removed, since
+# they cause big residuals which are reflected
+# in bigger SSR --> lower R^2 and adjusted R^2
+# use function outlierTest in package car
+
+# Visual inspection of outliers: plot of the
+# studentized residuals
+# rule of thumb: consider a unit to be outlier
+# if the stundetized residual is higher than 3
+# in absolute terms
+plot(M$fitted.values,rstudent(M))
+abline(h=3,lwd=3,col=2)
+
+# 5. high-leverage points.
+# Intuition: whilst outliers are anomalous in y,
+# high-lev points are anomalous in x
+# More dangerous than outliers, since they usually
+# have big effects on OLS line.
+# In simple lm, where x is unique, it is easy to
+# identify high-lev points with very high or low x
+# More complicated when you have p regressors,
+# (X1,X2,...,Xp) can be well beyond the usual 
+# range even if the single coordinates are within
+# the usual ranges --> to evaluate the leverage
+# of an obs, we compute the leverage statistic h_i
+# rule of thumb: high-lev point if
+# h_i>>(p+1)/n
+# Example on simulated data:
+x <- rnorm(50) # regressors
+y <- 1+x+0.75*rnorm(50) # true model
+x <- c(x,10)  # add a new x
+y <- c(y,20) # add a new y
+M <- lm(y~x)
+plot(x,y)
+abline(M,col=2,lwd=2)
+# re-run lm without the high-lev point:
+M2 <- lm(y[-51]~x[-51])
+abline(M2,col=3,lwd=3)
+
+# to compute leverage statistics:
+hii <- hat(model.matrix(M))
+(1+1)/51 # (p+1)/n
+plot(hii,rstudent(M))
+# with this plot, I look for high-lev (x-axi)
+# and for outliers (y-axis). Dangerous 
+# combination: a point which both outlier and
+# high-lev
+

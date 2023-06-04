@@ -1,0 +1,346 @@
+# Now: comparison in a simulated scenario of
+# different classifiers: logistic, LDA, QDA and 
+# KNN classification. 
+# Just one word on KNN classification: assign
+# to the point of interest the class most 
+# observed for the K closest observations 
+# (local modal category)
+# We are using a Scenario called "scenario 1"
+# in the book, where normal covariates with no
+# correlation
+
+# repetitions 100 times of content of {}
+out <- sapply(1:100,function(i.sample){
+
+cat(i.sample,"\n")  
+  
+# Generate the data
+muA <- c(-1.25,-1.25)  # mean pop A
+muB <- c(+1.25,+1.25)  # mean pop B
+sA  <- rmvnorm(20,muA,diag(2,2)) # sample from pop A
+sB  <- rmvnorm(20,muB,diag(2,2)) # sample from pop B
+s   <- rbind(sA,sB) # whole training sample
+s1  <- s[,1] # first covariate
+s2  <- s[,2] # second covariate
+
+y <- rep(c("A","B"),each=20) # generated classes
+
+# the above is the training sample we will use
+# to estimate the various methods, now we 
+# generate some large test sample we wil use
+# only for the purpose of evaluating their
+# performances
+sA.test  <- rmvnorm(5000,muA,diag(2,2)) # sample from pop A
+sB.test  <- rmvnorm(5000,muB,diag(2,2)) # sample from pop B
+s.test   <- rbind(sA.test,sB.test) # whole test sample
+s1.test  <- s.test[,1] # first covariate
+s2.test  <- s.test[,2] # second covariate
+y.test <- rep(c("A","B"),each=5000) # generated classes
+
+# data frame with all the data:
+data.tot <- data.frame(y=as.factor(c(y,y.test)),
+                       s1=c(s1,s1.test),
+                       s2=c(s2,s2.test))
+dim(data.tot)
+
+train <- rep(c(TRUE,FALSE),c(40,10000)) 
+
+# KNN, with K=1:
+knn1 <- class::knn(s,s.test,y,k=1) 
+knn1.err <- mean(knn1!=y.test) # prop of mistakes
+  
+# KNN, K chosen by cross-validation (CV)
+# (something we will look more in detail later today)
+k.vec <- c(1,5,10,39) # ks to compare
+knns <- sapply(k.vec,function(kk)
+  mean(FNN::knn.cv(s,y,k=kk)!=y))
+# knn.cv for knn classification, where error is measured
+# according to CV
+# Note: I do not pass s.test to the function, since test
+# data replaced by CV.
+# Then I will choose the k in k.vec showing the lowest error
+k.cv <- which.min(knns)  # index of k chosen by CV
+knncv <- class::knn(s,s.test,y,k=k.vec[k.cv]) # re-fit of
+   # KNN classification with K CV-driven
+knncv.err <- mean(knncv!=y.test)  # overall error rate
+
+# LDA, estimated on a subset of data.tot (first 40 rows
+# which are the training sample)
+lda.fit <- MASS::lda(y~s1+s2,data=data.tot,
+                     subset=train)
+lda.pred <- predict(lda.fit,data.tot[!train,])$class
+length(lda.pred)
+lda.err <- mean(lda.pred!=y.test)
+
+# QDA
+qda.fit <- MASS::qda(y~s1+s2,data=data.tot,
+                     subset=train)
+qda.pred <- predict(qda.fit,data.tot[!train,])$class
+length(qda.pred)
+qda.err <- mean(qda.pred!=y.test)
+
+# logistic regression
+log.fit <- glm(y~s1+s2,data=data.tot,family=binomial,
+               subset = train)
+log.prob <- predict(log.fit,data.tot[!train,],
+                    type="response")
+log.pred <- rep("A",10000)  # initialization of vec for
+  # predicted classes
+log.pred[log.prob>0.5] <- "B"
+log.err <- mean(log.pred!=y.test)
+
+return(c(knn1.err,knncv.err,lda.err,qda.err,log.err))
+
+})
+dim(out)
+par(mfrow=c(1,1))
+boxplot(t(out),names=c("KNN1","KNN CV","LDA","QDA","Log"))
+
+
+# Chapter 5 
+# Sampling methods: based on repeated drawings of samples
+# from the available data, to get additional information
+# about the fitted model
+# An example: estimate the variability of estimators
+# Limitation: computational expansive
+# Two ways to resample:
+# 1. cross-validation: to evaluate the performance 
+#    of a fitted model
+# 2. bootstrap: to measure the accuracy of an estimator
+#    under minimal assumptions
+
+# 1. cross-validation (CV)
+# Problem: test MSE can be computed only if I have
+# test data, typically not the case. The training
+# error rate can be substantially different from the 
+# test error rate
+# --> with CV, we estimate Test MSE using training data
+
+# A first CV method: Validation Set Approach
+# It slipts the sample in 2 equal parts randomly
+# (training set vs validation set)
+# --> MSE on the validation set is my estimate of
+# the test MSE
+
+# Example: Validation Set Approach on Auto data
+library(ISLR)
+dim(Auto)
+?Auto
+n <- nrow(Auto)
+set.seed(1234)
+train <- sample(n,n/2) # sampling from 1:n, n/2 obs
+  # (without replacement) for the training set 
+length(train)
+# we use this method to compare different degrees
+# of poynomial regressions
+degrees <- 1:10  # poly degree to compare 
+MSE <- c() # empty vec for MSEs
+plot(Auto$horsepower,Auto$mpg) # non linear relation
+for(i in degrees){
+  # fit the poly regression with degree i:
+  lm.fit <- lm(mpg~poly(horsepower,i,raw=TRUE),
+               data=Auto,subset = train) 
+  # predict y
+  lm.pred <- predict(lm.fit,Auto)
+  
+  # compare prediction and actual y to measure MSE
+  MSE.curr <- mean((Auto$mpg-lm.pred)[-train]^2)
+  MSE <- c(MSE,MSE.curr) # estimated test MSEs
+}
+plot(degrees,MSE,type="b")
+# problem: if you repeat the random extraction of 
+# observation to be included in the training sample,
+# the result could be very different
+# There a high variability problem of the Validation
+# Set approach. To show this problem: we repeat the
+# above 10 times
+
+plot(0,type="n",xlim=range(degrees),
+     ylim=c(15,30))
+for(j in 1:10){
+  train <- sample(n,n/2)
+  MSE <- c() # empty vec for MSEs
+  for(i in degrees){
+    lm.fit <- lm(mpg~poly(horsepower,i,raw=TRUE),
+                 data=Auto,subset = train) 
+    lm.pred <- predict(lm.fit,Auto)
+    MSE.curr <- mean((Auto$mpg-lm.pred)[-train]^2)
+    MSE <- c(MSE,MSE.curr) # estimated test MSEs
+  }
+  lines(degrees,MSE,col=j)
+}
+# drawbacks:
+# - high variability of the result
+# - overestimation of the test MSE, since you are
+#   using only half of the observations
+#   --> it deteriorates the model fit
+# To overcome these drawbacks, we move to a second
+# CV method, that is called LOOCV
+# (Leave-one-out cross validation)
+# Same idea of partition of obs between training and
+# validation, but in LOOCV, n-1 obs are part of the 
+# training sample, and only 1 obs is in the validation
+# set. Then, 
+# 1. you fit the model with all the sample excepted
+# obs 1, and then predict y for obs 1, then 
+# 2. you fit the model with all the sample excepted
+# obs 2, and then predict y for obs 2, then 
+# ...
+# n. you fit the model with all the sample excepted
+# obs n, and then predict y for obs n.
+# --> less overestimation of test MSE, since you are
+# using now n-1 observations to fit, and not n/2
+# --> variability problem disappears (no randomness)
+# in the MSE curve
+# Limitation: time consuming, since n times re-fit of
+# the model, and n can be large
+# Likely, no time consuming for linear model and its
+# polynomial extensions, since there are shortcuts
+# see formula (5.2) in the book
+# Advantage: very general applicability, if computationally
+# feasible, since it can be used for any model
+
+# Thursday 24 March we will start at 11:00
+# to finish around 14:15
+# Example: LOOCV on Auto data
+degrees <- 1:10  # poly degree to compare 
+MSE <- c() # empty vec for MSEs
+plot(Auto$horsepower,Auto$mpg) # non linear relation
+for(i in degrees){
+  cat(i,"\n")
+  # fit the poly regression with degree i:
+  lm.fit <- glm(mpg~poly(horsepower,i,raw=TRUE),
+               data=Auto) 
+  # compute LOOCV-estimated MSE for degree i:
+  MSE.curr <- boot::cv.glm(Auto,lm.fit)$delta[1]
+  MSE <- c(MSE,MSE.curr) # estimated test MSEs
+}
+plot(degrees,MSE,type="b")
+
+# As a trade-off of variance/bias between 
+# Validation set approach and LOOCV, we use a solution
+# "in the middle", typically adopted:
+# k-fold cross validation. Idea: slipt the sample into
+# k random parts and use the remaining k-1 parts for fit,
+# predict the k left out part of the sample. Repeat
+# the process for all k parts
+# k commonly used is 10 --> 10 model fits, that any time
+# uses 90% data to estimate, and predict the remaining
+# 10% of the data. To limit the computation burden,
+# we restore some variability
+
+# Example: 10-fold CV on Auto data
+degrees <- 1:10  # poly degree to compare 
+MSE <- c() # empty vec for MSEs
+plot(Auto$horsepower,Auto$mpg) # non linear relation
+for(i in degrees){
+  cat(i,"\n")
+  # fit the poly regression with degree i:
+  lm.fit <- glm(mpg~poly(horsepower,i,raw=TRUE),
+                data=Auto) 
+  # compute 10-fold CV-estimated MSE for degree i
+  # We now specify K=10 (default K is n, that is LOOCV)
+  MSE.curr <- boot::cv.glm(Auto,lm.fit,K=10)$delta[1]
+  MSE <- c(MSE,MSE.curr) # estimated test MSEs
+}
+plot(degrees,MSE,type="b") # estimated test MSE curve
+
+# check that variability is restored but more limited:
+plot(0,type="n",xlim=range(degrees),ylim=c(15,30))
+for(j in 1:10){
+  MSE <- c() # empty vec for MSEs
+  #plot(Auto$horsepower,Auto$mpg) # non linear relation
+  for(i in degrees){
+    #cat(i,"\n")
+    # fit the poly regression with degree i:
+    lm.fit <- glm(mpg~poly(horsepower,i,raw=TRUE),
+                  data=Auto) 
+    # compute 10-fold CV-estimated MSE for degree i
+    # We now specify K=10 (default K is n, that is LOOCV)
+    MSE.curr <- boot::cv.glm(Auto,lm.fit,K=10)$delta[1]
+    MSE <- c(MSE,MSE.curr) # estimated test MSEs
+  }
+  lines(degrees,MSE,type="b",col=j,lwd=3) # estimated test MSE curve
+}
+
+
+# BOOTSTRAP (non-parametric)
+# Statistical tool first introduced by Efron, with 
+# the purpose of estimating the uncertainty 
+# associated to some statistical procedure or to some
+# estimator.
+# As a simple example: you can use bootstrap to estimate
+# uncertainty of lm coefficients
+# We use bootstrap in an example in medicine, where 
+# we have to decide the proportion alpha of money to invest
+# in drug X or in drug Y, with the objective of 
+# minimizing the variance of the combination of the two
+# investiments
+# There is a closed form solution to the problem of 
+# finding alpha, as a function of the two investmnet
+# variabilities (see 5.6). I want to use bootstrap to 
+# evaluate the uncertainty of the estimated alpha
+
+# Intermediate step: I pretend to know the data generating
+# process. To estimate variability of alpha, I repeat
+# th process of simulating 100 pairs of X and Y 1000 times,
+# I compute alpha for each of these 1000 times, to 
+# have a distribution of alpha, from which I can recover
+# the variability of alpha
+# (simulation-based estimation of alpha and its 
+#  uncertainty)
+library(mvtnorm)
+COV <- matrix(c(2,0.5,0.5,2),2,2)
+s   <- rmvnorm(100,c(0,0),COV)
+dim(s)
+x <- s[,1]; y <- s[,2]
+# estimated prop of mony in drug Y (formula in the book)
+alpha.hat <- (var(y)-cov(x,y))/(var(x)+var(y)-2*cov(x,y))
+# the above is for one generated dataset
+# Now, pretending to now the data-generation process,
+# I repeat the above 1000 times to evaluate mean of alpha
+# and sd of alpha
+
+alphas <- sapply(1:1000,function(i){
+  s   <- rmvnorm(100,c(0,0),COV)
+  x <- s[,1]; y <- s[,2]
+  alpha.hat <- (var(y)-cov(x,y))/(var(x)+var(y)-2*cov(x,y))
+}) #1000 alphas, one for each simulated dataset
+hist(alphas)
+alpha.true <- (COV[2,2]-COV[1,2])/
+  (COV[1,1]+COV[2,2]-2*COV[1,2])
+abline(v=alpha.true,col=2,lwd=3)
+sd(alphas) # estimated variability of alpha
+
+# In practice: the above is not realistic since we dot
+# know the data generating process -->
+# idea of bootstrap: repeatedly sample (with replacement)
+# a high number of times from the sample
+# 1. I randomly select n observations to sample
+# 2. I estimate alpha based on these n extracted obs
+# 3. repeat steps 1 and 2 a high number of times, to 
+#    have an estimated distribution of alpha
+# 4. measure the uncertainty of alpha based on the
+#    estimated distribution
+s <- rmvnorm(100,c(0,0),COV)
+chosen <- sample(100,100,replace = TRUE)
+length(chosen)
+length(unique(chosen)) # same obs can be extracted more 
+   # than once (length < 100)
+x <- s[chosen,1]
+y <- s[chosen,2]
+alpha.hat <- (var(y)-cov(x,y))/(var(x)+var(y)-2*cov(x,y))
+
+alpha.boot <- sapply(1:20000,function(i){
+  chosen <- sample(100,100,replace = TRUE)
+  x <- s[chosen,1]
+  y <- s[chosen,2]
+  alpha.hat <- (var(y)-cov(x,y))/(var(x)+var(y)-2*cov(x,y))
+  return(alpha.hat)
+})
+hist(alpha.boot)
+abline(v=alpha.true,col=2,lwd=3)
+sd(alpha.boot)  # estimated variability of alpha
+# this estimation is very general since only based on the
+# sample and not on the underlying model
+

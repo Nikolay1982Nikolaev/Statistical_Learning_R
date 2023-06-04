@@ -1,0 +1,47 @@
+# Below we define function for plot data + 
+# classification boundary.
+# It can be used for knn classifier, lda, qda,
+# logistic regression, svm, tree-based methods
+classplot = function(model,data,class,showgrid=TRUE){
+  
+  # preliminaries
+  cl   = as.factor(data[,class])
+  data = data[,1:2]   # put x1 and x2 as firt two columns 
+  k    = length(unique(cl))
+  
+  # plot data
+  cols <- as.integer(cl)+1L
+  plot(data,col=cols,pch=as.character(cl))
+  
+  # make grid
+  r  = sapply(data, range, na.rm = TRUE)
+  xs = seq(r[1,1], r[2,1], length = 100)
+  ys = seq(r[1,2], r[2,2], length = 100)
+  g  = expand.grid(xs,ys)
+  colnames(g) = colnames(r)
+  g  = as.data.frame(g)  
+  
+  # adjustments to be used with logistic regression
+  cond = tryCatch(model$family$family)
+  if(!is.null(cond)){
+    if(model$family$family=="binomial"){
+      class(model) <- c("lr", class(model))   
+      predict.lr <- function(object, newdata, ...)
+        predict.glm(object, newdata, type = "response") > .5
+    }
+  } 
+  
+  # make predictions on grid
+  p = predict(model, g,type="class")
+  if(is.list(p)) p = p$class
+  p = as.factor(p)
+  
+  # plot grid
+  if(showgrid) points(g, col = as.integer(p)+1L, pch = ".")
+  
+  # plot boundary
+  z <- matrix(as.integer(p),100)
+  contour(xs, ys, z, add = TRUE, drawlabels = FALSE,
+          lwd = 2, levels = (1:(k-1))+.5)
+  
+} 

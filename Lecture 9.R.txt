@@ -1,0 +1,459 @@
+# regression splines with non-equally spaced knots
+knots <- quantile(x,seq(0,1,length=nknots))
+fit.bs <- lm(y~bs(x,knots=knots))
+yhat.bs <- predict(fit.bs,newdata = list(x=ascissa))
+plot(x,y,lwd=2)
+lines(ascissa,yhat.bs,lwd=3,col=2)
+
+# prediction on test set:
+yhat.bs.test <- predict(fit.bs,newdata = list(x=xtest))
+points(xtest,yhat.bs.test,col=4,lwd=3)
+MSE.bs <- mean((yhat.bs.test-ytest)^2)
+MSE.bs
+
+# A limitation of regression splines is that often you have 
+# high variance in the prediction in the extremes of the range of x
+# --> natural splines: regression spline + additional boundary
+#     contraints (linear f_hat before first knot and after last knot)
+ns(x,df=nknots-1)  # instead of bs
+ 
+fit.ns <- lm(y~ns(x,df=nknots-1))
+yhat.ns <- predict(fit.ns,newdata = list(x=ascissa))
+plot(x,y,lwd=2)
+lines(ascissa,yhat.ns,lwd=3,col=2)
+
+# prediction on test set:
+yhat.ns.test <- predict(fit.ns,newdata = list(x=xtest))
+points(xtest,yhat.ns.test,col=4,lwd=2)
+MSE.ns <- mean((yhat.ns.test-ytest)^2)
+MSE.ns
+
+########################
+# 4. smoothing splines #
+########################
+# Now: nonparametric method
+# To find that function g(x) that minimizes the error crterium
+# sum((y-g(x))^2) + penalty
+# where penalty = lambda*Int(g'')
+# higher penalty for those g that is more irregular
+# --> the g(x) that minimizes this criterium is a piesewise
+# cubic polynomial with knots at x1,x2,...,xn + linear boundaries
+# at the extremes + shrinkage
+# --> strunken natural spline with knots at distinct values of x
+yhat.ssplines <- smooth.spline(x,y,cv=TRUE)
+# cv= TRUE for LOOCV choice of lambda
+
+plot(x,y,lwd=2)
+lines(yhat.ssplines,lwd=3,col=2)
+
+yhat.ss.test <- predict(yhat.ssplines,xtest)$y
+MSE.ss <- mean((yhat.ss.test-ytest)^2)
+MSE.ss
+
+#######################
+# 5. Local regression #
+#######################
+# Local regression: fit at point x0, using only nearby training
+# observations:
+# 1. gather the fraction k=s/n of training points closest to x0
+# 2. assign to each of these point a kweight Ki higher is closer
+# 3. fit a weighted least squares regression on y_i using 
+#    only this xs and with the given weights
+#    (to min sum(Ki*(yi-b0-b1xi)^2)
+# 4. yhati = b0.hat+b1hat*x0
+# Important: selection of s (similar role of lambda).
+# Smaller s --> fewer closest obs will be used --> fit more local
+# --> more irregular fit. Use CV to choose s
+fit.locreg <- loess(y~x,span = 0.3)  # 30% closest obs to be included
+yhat.locreg <- predict(fit.locreg,data.frame(x=ascissa))
+plot(x,y,lwd=2)
+lines(ascissa,yhat.locreg,lwd=3,col=2)
+# performance on test data:
+yhat.locreg.test <- predict(fit.locreg,data.frame(x=xtest))
+MSE.locreg <- mean((yhat.locreg.test-ytest)^2)
+MSE.locreg
+
+# by changing the span, I can have a different result:
+fit.locreg2 <- loess(y~x,span = 0.1)  # 10% closest obs to be included
+yhat.locreg2 <- predict(fit.locreg2,data.frame(x=ascissa))
+plot(x,y,lwd=2)
+lines(ascissa,yhat.locreg2,lwd=3,col=2)
+# performance on test data:
+yhat.locreg.test2 <- predict(fit.locreg2,data.frame(x=xtest))
+MSE.locreg2 <- mean((yhat.locreg.test2-ytest)^2)
+MSE.locreg2
+
+# by changing the span, I can have a different result:
+fit.locreg3 <- loess(y~x,span = 0.5)  # 50% closest obs to be included
+yhat.locreg3 <- predict(fit.locreg3,data.frame(x=ascissa))
+plot(x,y,lwd=2)
+lines(ascissa,yhat.locreg3,lwd=3,col=2)
+# performance on test data:
+yhat.locreg.test3 <- predict(fit.locreg3,data.frame(x=xtest))
+MSE.locreg3 <- mean((yhat.locreg.test3-ytest)^2)
+MSE.locreg3
+
+# MSE comparison
+MSE.poly
+MSE.step
+MSE.bs
+MSE.ns
+MSE.locreg
+MSE.locreg2
+MSE.locreg3
+# --> global polynomial regression seems to work better
+
+#######################################
+# 6 GAM (Generalized additive models) #
+#######################################
+# Previous methods: simple (based on single X)
+# Now: put together previous methods additively
+# Model: yi = b0 + sum_j f_j(x_ij) + eps_i
+# where f_j can be one from the previous methods
+# Fitting done using backfitting: update fit using  one X at 
+# the time, holding others fixed. We apply the method f_j to 
+# the partial residual y-sum_{k<>j}f_j
+#
+# We apply it on dataset Wage of ISLR
+library(ISLR)
+dim(Wage)
+help("Wage")
+
+boxplot(Wage$wage~Wage$year)
+boxplot(Wage$wage~Wage$maritl)
+boxplot(Wage$wage~Wage$race)
+boxplot(Wage$wage~Wage$education)
+plot(Wage$age,Wage$wage,lwd=2)
+
+# model:
+# for all qualitative Xs, we use lm with dummies
+# year effect: linear
+# age: non-linear
+
+# model1 = natural cubic splines for age
+# (we can still use lm unless you have a smoothing spline)
+gam1 <- lm(wage~year+ns(age,5)+maritl+race+
+             education+jobclass+health+health_ins,
+           data = Wage)
+summary(gam1)
+# we could also use gam function in the package gam
+library(gam)
+gam1 <- gam(wage~year+ns(age,5)+maritl+race+
+             education+jobclass+health+health_ins,
+           data = Wage)
+summary(gam1)
+layout(matrix(1:8,nr=2))
+plot.Gam(gam1,se=TRUE,col=2)
+
+# if we change dfs we can create different models:
+gam2 <- gam(wage~year+ns(age,1)+maritl+race+
+              education+jobclass+health+health_ins,
+            data = Wage)
+plot.Gam(gam2,se=TRUE,col=2)
+
+gam3 <- gam(wage~year+ns(age,20)+maritl+race+
+              education+jobclass+health+health_ins,
+            data = Wage)
+plot.Gam(gam3,se=TRUE,col=2)
+
+# we now choose with CV the dfs:
+k <- 10 # number of folds
+n <- dim(Wage)[1]
+df.explore <- 1:20
+CV.errors <- matrix(nr=k,nc=length(df.explore))
+set.seed(12345)
+folds <- sample(1:k,size=n,replace = TRUE)
+table(folds)
+for(d in df.explore){
+  for(i in 1:k){
+    # fit using data not in fold i
+    gam.i <- gam(wage~year+ns(age,d)+maritl+race+
+                   education+jobclass+health+health_ins,
+                 data = Wage[folds!=i,])
+    # prediction on data in fold i
+    predicted <- predict(gam.i,Wage[folds==i,])
+    CV.errors[i,d] <-
+      sum((predicted-Wage$wage[folds==i])^2)
+  }
+}
+mean.CV.errors <- apply(CV.errors,2,mean)
+sd.CV.errors <- apply(CV.errors,2,sd)
+layout(1)
+plot(df.explore,mean.CV.errors,type="b",lwd=3)
+# it suggest 2 or 5 dfs, but actually a lot
+# of variability:
+boxplot(CV.errors)
+# --> increase num of folds to 50
+
+k <- 50 # number of folds
+n <- dim(Wage)[1]
+df.explore <- 1:10
+CV.errors <- matrix(nr=k,nc=length(df.explore))
+set.seed(12345)
+folds <- sample(1:k,size=n,replace = TRUE)
+table(folds)
+for(d in df.explore){
+  for(i in 1:k){
+    # fit using data not in fold i
+    gam.i <- gam(wage~year+ns(age,d)+maritl+race+
+                   education+jobclass+health+health_ins,
+                 data = Wage[folds!=i,])
+    # prediction on data in fold i
+    predicted <- predict(gam.i,Wage[folds==i,])
+    CV.errors[i,d] <-
+      sum((predicted-Wage$wage[folds==i])^2)
+  }
+}
+mean.CV.errors <- apply(CV.errors,2,mean)
+sd.CV.errors <- apply(CV.errors,2,sd)
+layout(1)
+plot(df.explore,mean.CV.errors,type="b",lwd=3)
+# it suggests 5 dfs
+boxplot(CV.errors)
+# still high variability --> LOOCV...
+
+# Now, having chosen df=5 for ns of age, we can 
+# focus on year
+table(Wage$year)
+df.explore <- 1:7 # to be not higher than num
+                  # of distinct values for year
+k <- 10 # number of folds
+n <- dim(Wage)[1]
+CV.errors <- matrix(nr=k,nc=length(df.explore))
+set.seed(12345)
+folds <- sample(1:k,size=n,replace = TRUE)
+table(folds)
+for(d in df.explore){
+  for(i in 1:k){
+    # fit using data not in fold i
+    gam.i <- gam(wage~ns(year,d)+ns(age,5)+maritl+race+
+                   education+jobclass+health+health_ins,
+                 data = Wage[folds!=i,])
+    # prediction on data in fold i
+    predicted <- predict(gam.i,Wage[folds==i,])
+    CV.errors[i,d] <-
+      sum((predicted-Wage$wage[folds==i])^2)
+  }
+}
+mean.CV.errors <- apply(CV.errors,2,mean)
+sd.CV.errors <- apply(CV.errors,2,sd)
+layout(1)
+plot(df.explore,mean.CV.errors,type="b",lwd=3)
+# it suggests a linear dependence with year
+
+gam1 <- gam(wage~ns(year,1)+ns(age,5)+maritl+race+
+               education+jobclass+health+health_ins,
+             data = Wage)
+
+# to use GAM with smoothing splines, use the 
+# function s() with gam() for the variable on
+# which to apply smoothing splines
+# as additional input to s(), df or lambda (spar)
+gam.m1 <- gam(wage~year+s(age,spar=exp(-1))+maritl+race+
+                education+jobclass+health+health_ins,
+              data = Wage)
+summary(gam.m1)
+plot.Gam(gam.m1)
+# try yourself to use CV for selecting the optimal
+# value of lambda
+
+# You can use local regression in gam
+# with the function lo(), by also specifying
+# the option span for % obs to the used
+
+# we can also use gam for classification:
+# for instance, on the dataset Default
+# a gam with smoothing splines on both balance
+# and income, to predict if unit defaults or not
+gam.default <- gam(default~s(balance,6)+
+                     s(income,6)+student,
+                   data=Default,
+                   family="binomial")
+# log(odds)=b0+b1X1+b2X2+... becomes
+# log(odds)=b0+f1(X1)+f2(X2)+...
+
+# Exercise:
+# fit a GAM on the Hitters dataset
+# The aim is to predict Salary in terms of the
+# other predictors. Start using ss with df=6
+# for every quantitative X
+# Then simply the model by
+# - excluding those Xs not related to y
+# - using linearities where non-linearities
+#   are not needed
+
+######################
+# TREE-BASED methods #
+######################
+# For regression and classification. 
+# General idea: split the predictor space into
+# regions, and provide the same yhat for all
+# obs in a region. yhat mean of obs in the region
+# or mode of obs in the region 
+# 1. Regression trees:
+# More formally, we want to find regions 
+# R1, R2,..., RJ on the space of X 
+# that minimize the RSS
+# sum_j sum_{i in Rj}(yi-yhat_{Rj})^2 
+# The predictor space (or feature space)
+# has to be optimally segmented, but
+# computational prohibitive to find the best
+# segmentation --> greedy approach of
+# recursive binary splitting:
+# find j and s such that splitting into
+# {X:Xj<s} and {X:Xj>=s} leads to the highest
+# reduction in RSS. Then repeat the process
+# until some stopping rule (min num of obs in 
+# each region or min accepted improvement in RSS)
+# --> all evaluations points in a region will
+# have equal prediction
+# Problem: too many regions can be created, and this
+# can lead to overfitting. One possible solution
+# is a more restricting stopping rule --> a coarser
+# segmentation --> smaller tree
+# But this way we could lose splits that lead
+# to big improvements in RSS
+# --> build a big tree and then prune it back
+# in order to create a sub-tree. How?
+# By cost complexity pruning: you attach to each
+# subtree a RSS + penalty (higher for higher trees)
+# --> a sequence of sub-trees indexed by alpha
+# and to each element in this sequence we have
+# RSS + alpha|T|, where |T|=num of regions
+# Select alpha by CV:
+# 1. Use recursive binary slitting to create 
+#    a big tree
+# 2. Apply cost complexity pruning to obtain
+#    a sequence of sub-trees, related to a grid
+#    values of alpha
+# 3. Use K-fold CV to choose alpha. For k=1,...,K:
+#    3a. Repeat step 1 and 2 on all but k-fold
+#    3b. Evaluate MSE on the data in k-th fold
+#    Then we average MSE across folds and select
+#    alpha with lowest MSE
+#
+# Now: implement tree on Credit
+library(tree)
+tree.credit <- tree(Balance~.,data=Credit[,-1])
+tree.credit
+plot(tree.credit,lwd=2)
+text(tree.credit,digits=3,cex=0.8)
+
+# we can change parameters of the tree using
+# tree.control. Inputs:
+# nobs = num of units in the training sample
+# mincut = min num of obs to have in a region
+#          (default is 5)
+# mindev = min RSS decrease (in % wrt root RSS)
+#     to have a further split (0.01 by default)
+tree.credit.big <- tree(Balance~.,data=Credit[,-1],
+                        control=tree.control(nobs=dim(Credit)[1],
+                                             mincut=1,
+                                             mindev=0.0001))
+plot(tree.credit.big,lwd=2)
+text(tree.credit.big,digits=3,cex=0.3)  
+
+# the function cv.tree can be used to select the optimal
+# tree size, according to CV:
+cv.credit <- cv.tree(tree.credit.big,FUN=prune.tree)
+# we will change to FUN=prune.misclass for classification
+plot(cv.credit$size,cv.credit$dev,type="b",lwd=3,
+     xlab="size of the subtree",ylab="CV error")
+# we see a substantial dicrease in RSS up to size = 12/13,
+# and later there is no improvement in larger trees
+cbind(cv.credit$size,cv.credit$dev)
+# flat zone from size = 12 --> choose 12
+
+prune.credit <- prune.tree(tree.credit.big,best=12)
+plot(prune.credit,lwd=2)
+text(prune.credit,cex=0.8,digits=4)
+
+# For classification, similar with the exception of how
+# we measure the error: Gini index or Entropy
+# (look at the book for specific expressions)
+#
+# We implement a classification tree on Carseats
+?Carseats
+hist(Carseats$Sales)
+abline(v=8,lwd=3)
+# we build a new categorical rv:
+High <- ifelse(Carseats$Sales<=8,"No","Yes") 
+High <- factor(High)
+table(High)
+
+Carseats <- data.frame(Carseats,High)
+
+# Tree with all the other variables, using Gini index
+tree.carseats <- tree(High~.-Sales,data=Carseats,
+                      method="Gini")
+plot(tree.carseats,lwd=2)
+text(tree.carseats,cex=0.8)
+contrasts(Carseats$ShelveLoc)
+tree.carseats
+# Now CV and pruning to select optimal subtree:
+cv.carseats <- cv.tree(tree.carseats,FUN=prune.misclass)
+plot(cv.carseats$size,cv.carseats$dev,type="b",lwd=2)
+# CV error as a function of the tree size
+# careful: results can change if re-run
+cv.carseats <- cv.tree(tree.carseats,FUN=prune.misclass)
+plot(cv.carseats$size,cv.carseats$dev,type="b",lwd=2)
+
+# Let's increase the num of folds --> LOOCV
+cv.carseats <- cv.tree(tree.carseats,FUN=prune.misclass,
+                       K=400)
+plot(cv.carseats$size,cv.carseats$dev,type="b",lwd=2)
+# --> I choose size = 5
+
+prune.carseats <- prune.misclass(tree.carseats,best=5)
+plot(prune.carseats)
+text(prune.carseats,cex=0.8)
+
+# Often a big improvement over trees can be obtained by
+# Bagging (Boostrap aggregation)
+# Idea: generate high B of bootstrap samples from the
+# training sample, estimate a tree on each of this 
+# bootstrap sample (B trees), then do the average (or mode)
+# We do not really need to run B CVs, since not all
+# obs will be part of the bootstrap sample. Then the idea
+# of OOB error (out-of-bag error) is to use the tree to
+# predict obs not used in the boostrap sample
+#
+# we implement bagging on Boston
+library(MASS)
+dim(Boston) # it contains info on crimes 
+n <- dim(Boston)[1]
+train <- sample(n,300)
+library(randomForest)
+# mtry = p means that I use all vars for the tree
+bag.boston <- randomForest(medv~.,data=Boston,
+                           subset = train,
+                           mtry=dim(Boston)[2]-1,
+                           importance=TRUE,ntree=1000) 
+# OOB error:
+bag.boston$mse
+plot(bag.boston$mse,main="OOB error",type="l",lwd=3,
+     xlab="Num of trees used")
+# OOB error as function of num of trees used
+# performance on test data:
+yhat.bag <- predict(bag.boston,
+                    newdat=Boston[-train,])
+boston.test <- Boston$medv[-train]
+mean((yhat.bag-boston.test)^2)
+
+# Now, sometimes there could be Xs very important
+# for the tree contructions --> splits can repeat
+# over trees --> create dependence and dicrease the
+# advantage of bagging over single trees
+# --> use for each tree only a random subset of Xs, to
+# be considered for the tree construction 
+# --> random forests (usually sqrt(p) Xs are used)
+mtry = round(sqrt(13))
+rf.boston <- randomForest(medv~.,data=Boston,
+                          subset = train,
+                          mtry=mtry,
+                          importance=TRUE,ntree=1000) 
+yhat.rf <- predict(rf.boston,
+                    newdat=Boston[-train,])
+mean((yhat.rf-boston.test)^2)
+
+varImpPlot(rf.boston)

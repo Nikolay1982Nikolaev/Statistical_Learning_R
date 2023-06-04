@@ -1,0 +1,353 @@
+# Last problem: collinearity
+# Problem since one X can be recovered from
+# the other Xs
+# More precisely, you can find a linear combination
+# of the other Xs that replicates the X
+# Intuitive problem: X does not introduce any additional
+# info in the problem --> X redundant
+# Math problem: (X'X) not invertible
+# Difficult to separate the effect of Xs which are 
+# collinear
+# Let's use dataset Credit from ISLR
+library(ISLR)
+attach(Credit)
+par(mfrow=c(2,1))
+plot(Limit,Age)
+plot(Limit,Rating)
+# with collinearity, uncertainty of estimates
+# increase  --> t-statistics tend to be low
+# --> many real effects will not be detected
+# Can I look at the corr matrix of Xs?
+cor(Limit,Age)
+cor(Limit,Rating)
+# Ok, but not enough. High rho (in abs value)
+# can only detect collinearity between pairs of
+# Xs, but sometimes, linear combinations of two
+# or more Xs replicate the other X
+# (multicollinearity). For instance, it could be
+# that X1+X2 approx X3
+# --> better indicator  than rho is the 
+# Variance Inflation Factor (VIF): it is the ratio
+# between the variance of b in the full model and
+# the variance of b when only X is included in the
+# model
+# smallest value for VIF = 1
+# rhule of thumb: VIF > 5 or 10 this suggests
+# critical (multi)-collinearity
+M <- lm(Balance~Limit+Age)
+car::vif(M) # low VIFs
+M2 <- lm(Balance~Limit+Rating)
+car::vif(M2) # high VIFs
+
+# Once we detect this problem:
+# 1. drop one of the Xs involved
+# 2. combine variables involved.
+# In the Credit example, we could combine Limit
+# and Rating into a new X "credit worthiness"
+# as an average of the two "original Xs"
+
+
+#############################
+# Comparison between lm and
+# KNN regression.
+# K nearest neighbours regression
+# it performs local averages of the 
+# K closest y_i (in the predictor space)
+# If I fix K=1, I predict for my evaluation
+# point, the value of y associated to the 
+# closest point --> flexible (variability), 
+# since I can 
+# easily change my f_hat when I change my eval
+# point, low bias, since for the prediction of f
+# I do not consider Xs distant from the point of 
+# interest. This high variability comes from
+# the dependence of the estimated f from one single
+# obs. On the other hand, with K large, 
+# I have more bias, since I am using more distant
+# point to estimate f, but I reduce variability
+# since I use more data to estimate f
+library(FNN) # for KNN regression
+# we will use the package "class"
+# for KNN classification
+# I use Credit, with Limit and Age as predictors
+Limit.test <- seq(min(Limit),max(Limit),
+                  length=20)
+Age.test <- seq(min(Age),max(Age),
+                  length=20)
+X.test <- expand.grid(Limit.test,Age.test)
+# in X.test all possible points of the grid
+# created with Limit.test  for x-axis and 
+# Age.test for y-axis
+dim(X.test)
+X.train <- cbind(Limit,Age)
+dim(X.train)
+# KNN regression with K=1
+# 1st input: training sample (without Y)
+# 2nd input: test sample
+# 3rd input: Y
+# 4th input: chosen K
+knn1 <- FNN::knn.reg(X.train,
+                     X.test,
+                     Balance,
+                     k=1)
+f.hat <- knn1$pred  # estimated f(x)  
+layout(1)
+plot.kkn1 <- persp(x=Limit.test,
+                   y=Age.test,
+                   z=matrix(f.hat,20,20),
+                   theta=-30,phi=20,
+                   xlab="Limit",
+                   ylab="Age",
+                   zlab = "Balance",col=2,
+                   main="KNN, k=1",
+                   xlim=range(Limit),
+                   ylim=range(Age),
+                   zlim=range(Balance))
+# with k=1, f_hat interpolates the
+# osberved points, since y_hat=y when 
+# the evaluation point is a observed point
+mypoints <- trans3d(Limit,Age,Balance,plot.kkn1)
+points(mypoints,lwd=2)
+
+# Now: increase k to 50
+knn50 <- FNN::knn.reg(X.train,
+                     X.test,
+                     Balance,
+                     k=50)
+f.hat2 <- knn50$pred  # estimated f(x)  
+
+plot.kkn50 <- persp(x=Limit.test,
+                   y=Age.test,
+                   z=matrix(f.hat2,20,20),
+                   theta=-30,phi=20,
+                   xlab="Limit",
+                   ylab="Age",
+                   zlab = "Balance",col=2,
+                   main="KNN, k=50",
+                   xlim=range(Limit),
+                   ylim=range(Age),
+                   zlim=range(Balance))
+# much smoother curve with higher K
+mypoints <- trans3d(Limit,Age,Balance,plot.kkn50)
+points(mypoints,lwd=2)
+# but now more distance between y and f_hat
+# Note: high K corresponds to lower flexibility,
+# then 1/K as a measure of flexibility
+# We will see approaches for selecting K
+# based on estimated test error rates
+
+# Now: compare lm and knn to see in which settings
+# one is better than the other
+
+# CASE 1: KNN vs lm in a linear setting
+x <- rnorm(50)  # indep variables
+y <- 1+x+0.75*rnorm(50)   # dep variables
+plot(x,y,lwd=2)
+abline(lm(y~x),lwd=2)
+knn1 <- FNN::knn.reg(cbind(x),cbind(sort(x)),
+                     y,k=1)
+lines(sort(x),knn1$pred,col=2,lwd=2)
+knn9 <- FNN::knn.reg(cbind(x),cbind(sort(x)),
+                     y,k=9)
+lines(sort(x),knn9$pred,col=3,lwd=2)
+# when the true relationship is linear,
+# it is difficult for KNN to beat lm
+# To better see that lm is better in this
+# linear scenario, we compute a test MSE
+set.seed(123)
+x <- rnorm(100) 
+y <- 1+x+10*rnorm(100)
+plot(x,y)
+abline(lm(y~x),col=4,lwd=2)
+abline(1,1,col=2,lwd=2)
+
+x.test <- rnorm(10000)
+y.test <- 1+x.test+10*rnorm(10000)
+M <- lm(y~x)
+y.pred <- predict(M,data.frame(x=x.test))
+MSE.lm <- mean((y.pred-y.test)^2)
+MSE.knn <- c() # to try different ks
+ks <- c(50,20,10,5,2,1)
+for(k in ks){
+  # predict with current k:
+  y.pred <- FNN::knn.reg(cbind(x),
+                        cbind(x.test),
+                        y,k=k)$pred
+  # MSE with current k:
+  MSE.curr <- mean((y.pred-y.test)^2)
+  
+  # stack in the vec with all MSE_knn:
+  MSE.knn <- c(MSE.knn,MSE.curr)
+}
+plot(1/ks,log(MSE.knn),type="b",lwd=2)
+# plot MSE of knn as a function of flexibility
+# Higher flexibility (lower k) in this 
+# context means higher errors, since the true
+# dependence is linear
+abline(h=log(MSE.lm),lwd=2,col=2)
+
+# CASE 2: comparison KNN / lm in a non-linear setting
+x <- rnorm(100,10)
+y <- 1+cos(x)+0.1*rnorm(100)
+plot(x,y,lwd=2)
+M <- lm(y~x)
+abline(M,lwd=2,col=4)
+plot(function(x)1+cos(x),xlim=range(x),col=2,
+     add=TRUE,lwd=2)
+
+x.test <- rnorm(10000,10)
+y.test <- 1+cos(x.test)+0.1*rnorm(10000)
+M <- lm(y~x)
+y.pred <- predict(M,data.frame(x=x.test))
+MSE.lm <- mean((y.pred-y.test)^2)
+MSE.knn <- c() # to try different ks
+ks <- c(50,20,10,5,2,1)
+for(k in ks){
+  # predict with current k:
+  y.pred <- FNN::knn.reg(cbind(x),
+                         cbind(x.test),
+                         y,k=k)$pred
+  # MSE with current k:
+  MSE.curr <- mean((y.pred-y.test)^2)
+  
+  # stack in the vec with all MSE_knn:
+  MSE.knn <- c(MSE.knn,MSE.curr)
+}
+plot(1/ks,log(MSE.knn),type="b",lwd=2,ylim=c(-5,-1))
+abline(h=log(MSE.lm),col=2,lwd=2)
+# I would choose knn regression with 1/k=0.2
+# (lowest point in the curve), that is k=5, the
+# one with lowest test MSE
+
+# In practise, we can rarely be in an exactly
+# linear context, still there can be better
+# performances of lm in a non-linear context
+# in problems of high-dimensionality, that is
+# when the num of regressors p is high
+
+# CASE 3: lm vs knn  when p is large
+set.seed(12345)
+# I choose a max of 20 predictors
+Sigma <- rWishart(1,20,diag(1,20))
+Sigma <- Sigma[,,1]
+X <- mvtnorm::rmvnorm(100,rep(10,20),
+                      sigma=Sigma)
+dim(X)
+y <- 1+cos(X[,1])+0.1*rnorm(100)
+# y highly non-linear in x, but only first
+# x is useful to determine x, the other xs
+# are noise (realistis, since many dataframes
+# are "dirty")
+# Problem with knn
+# Let's see how test MSE changes as we increase
+# the num of noise Xs used in the model
+X.test <- mvtnorm::rmvnorm(10000,rep(10,20),
+                      sigma=Sigma)
+y.test <- 1+cos(X[,1])+0.1*rnorm(10000)
+par(mfrow=c(2,2))
+for(p in c(1,2,3,10)){
+  x <- X[,1:p] # matrix of regressors used
+  M <- lm(y~x) # linear model
+  y.pred <- predict(M,data.frame(x=X.test[,1:p]))
+  MSE.lm <- mean((y.pred-y.test)^2)
+  MSE.knn <- c() # to try different ks
+  for(k in ks){
+    y.pred <- FNN::knn.reg(cbind(x),
+                           cbind(X.test[,1:p]),
+                           y,k=k)$pred
+    MSE.curr <- mean((y.pred-y.test)^2)
+    MSE.knn <- c(MSE.knn,MSE.curr)
+  }
+  plot(1/ks,log(MSE.knn),type="b",lwd=2)
+  abline(h=log(MSE.lm),col=2,lwd=2) 
+}
+# KNN performs badly because of the
+# curse of dimensionality:
+# with high p, the regressor space is huge, and
+# therefore the k closest points are distant
+# from the point of interest
+# As a rule of thumb: parametric models tend
+# to perform better when there is a lower number
+# of observations per predictor
+
+
+###########################
+# CLASSIFICATION: chapter 4
+###########################
+# previous regression models (lm, poly lm, knn)
+# assume that y is quantitative
+# Now:  y is qualitative (ex: eye colour)
+# also called categorical
+# classification: estimation of the category
+# the stat unit belongs to
+# classification techniques also called classifiers
+# We will see: logistic regression, linear
+# discriminant analysis (lda), KNN classification,
+# generalized additive models (gam), random trees
+# and random forests, support vector machines (svm)
+
+# data set used: Default
+# we are interested to predict if a specific
+# subject will default or not, on the basis
+# of the student status, credit card balance and
+# income
+# Y is categorical since yes/no for the default
+# status
+head(Default)
+layout(1)
+plot(Default$balance,Default$income,
+     col=ifelse(Default$default=="Yes",2,1),lwd=2)
+dim(Default)
+# why not lm?
+# Suppose we want to predict a medical condition
+# based on patient features. Three possible
+# medical conditions: stroke, drug overdose,
+# epilepsy
+# A first possibility: cose stroke as 1, overdose
+# as 2, epilepsy as 3 and then treat this Y as
+# quantitative in lm
+# problem: if you change the coding the results
+# will be affected, and also we assume that distance
+# between categories is the same
+# Another problem. Say that a binary Y=0 if stroke
+# and 1 if overdose. We could try lm and
+# if y.hat>0.5 --> predict overdose
+# if y.hat<0.5 --> predict stroke
+# but y.hat = b0+b1x that could be <0 or >1
+# then I can't use lm for Y=P(overdose|x)
+# --> we need some transformation of Y
+# for which we are always in [0,1]
+# --> logistic regression, for predicting
+# qualitative y with two categories
+par(mfrow=c(1,2))
+attach(Default)
+default01 <- rep(0,length(default))
+default01[default=="Yes"] <- 1
+table(default01)
+table(default)
+plot(balance,default01)
+abline(lm(default01~balance),lwd=2)
+# not meaningful prediction of y with lm
+M <- glm(default~balance,family = binomial)
+# with the above: logistic regression
+p.pred <- predict(M,
+                  data.frame(balance=sort(balance)),
+                  type="response") # predicted prob
+lines(sort(balance),p.pred,col=2,lwd=2)
+# In the logistic model: log-odds of the event
+# coded as 1 is assumed a linear function of Xs
+# log-odds = log(P(event)/(1-P(event)))
+# as in lm: beta>0 means a positive relat. between
+# X and Y
+# --> if you increase X, you increase the 
+# probability of the event (default)
+# intercept and slopes estimated using MLE
+summary(M)$coef
+# a one-unit increase in balance increase the 
+# log-odds of the event default by 0.005
+# we can now predict prob of default at any given
+# value of balance
+# We can extend to more Xs:
+M <- glm(default~balance+income+student,
+         family = binomial)
+round(summary(M)$coef,4)

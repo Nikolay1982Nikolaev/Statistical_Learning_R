@@ -1,0 +1,435 @@
+# for bootstrap you can also use the boot() function
+# You need a function with data and indices of the chosen
+# observations as, respectively first and second input
+# For instance, to implement bootstrap to the dataset
+# Portfolio (package ISLR)
+head(Portfolio)
+dim(Portfolio)
+alpha.boot <- function(data,index){
+  X <- data$X[index]
+  Y <- data$Y[index]
+  alpha.hat <- (var(Y)-cov(X,Y))/(var(X)+var(Y)-2*cov(X,Y))
+  return(alpha.hat)
+}
+alpha.out <- boot::boot(Portfolio,alpha.boot,R=10000)
+summary(alpha.out)$bootSE
+
+# Last example on bootstrap: use it to estimate the
+# accuracy of lm. More precisely: to estimate variability
+# of coeff estimators, in comparison with expected formulas
+# for this variability
+# for the dataset Auto:
+boot.fn <- function(data,index){
+  lmfit <- lm(mpg~horsepower,data=data,
+              subset=index)
+  return(coef(lmfit))
+}
+boot::boot(Auto,boot.fn,R=1000)
+summary(lm(mpg~horsepower,data=Auto))$coeff
+# in summary(lm) sd estimated are based on lm
+# assumptions, whilst sd estimated in bootstrap do not.
+# Then, in case of incoherence, some assumptions 
+# behind lm can be in doubt
+
+
+############################################
+# Model selection and regularization (CHP 6)
+############################################
+# Ways to improve over the linear model:
+# 1. subset selection. Select in some optimal way
+#   subsets of the p variables in the full model
+# 2. Shrinkage. Some of the estimated coeffs are
+#    shrunk to zero. Sometimes only closer to zero,
+#    sometimes fixed to zero (in this last case, we
+#    also perform variable selection)
+# 3. Dimension reduction. From p original variables to
+#    to a smaller number of linear combinations of these
+#    variables. 
+# The method above are meant to provide a better
+# prediction accuracy
+
+# 1. Subset selection. 
+# 1A. Best subset selection. we fit all p models with 
+# one variable and choose the best among this. Then 
+# you fit all the choose(p,2) models with 2 variables and 
+# choose the best on these
+# More schematically:
+# - fit M0 the null model with no covariates. Rgister its
+#   performance
+# - for k=1,...,p
+#   - fit all choose(p,k) models with k covariates
+#   - choose best model among the ones in the previous point
+# - Finally select best model among the best models for 
+#   the given number of covariates. To compare with 
+#   cross-validated prediction error, adjusted R^2, or
+#   C_p, or BIC
+
+# Best subset selection on Credit
+dim(Credit)
+# build the matrix of regressors:
+X <- model.matrix(Balance~.,Credit[,-1])
+dim(X)
+head(X)
+X <- X[,-1] # remove intercept
+
+# create vector for the response
+y <- Credit$Balance
+
+# best subset selection:
+resids <- c()   # to be filled by RSS
+R2     <- c()   # to be filled with R2
+
+# null model
+M <- lm(y~1)
+resids[[1]] <- deviance(M)
+# deviance for lm: sum((y-M$fitted.values)^2) RSS
+# deviance more in general: -2*loglik
+R2[[1]] <- summary(M)$r.squared
+
+p <- ncol(X)
+for(k in 1:p){  # k is num of covariates to include
+  combs <- combn(p,k) # all possible combinations of k vars
+  resids[[k]] <- apply(combs,2,
+                       function(i)deviance(lm(y~X[,i])))
+  R2[[k]] <- apply(combs,2,
+                   function(i)summary(lm(y~X[,i]))$r.squared)
+
+}
+par(mfrow=c(1,1))
+plot(0,type="n",xlim=c(1,p),ylim=range(resids),
+     xlab="num of regressors",
+     ylab="RSS")
+for(k in 1:p) points(cbind(k,resids[[k]]),lwd=2)
+lines(sapply(resids,min),lwd=2,col=2)
+
+# which variables are selected?
+mins <- sapply(resids,which.min)
+vars <- sapply(1:p,function(k)combn(p,k)[,mins[k]])
+lapply(1:p,function(j)colnames(X)[vars[[j]]])
+# to visualize the variables each time included
+which.min(mins) # suggests to include everything,
+# not surprising, and that's whay you need 
+# to use other methods than R^2 to compare
+# models of different dimensionality.
+
+# Likely, we have a shorter answer:
+library(leaps)
+subsetfit <- 
+  leaps::regsubsets(X,y,nvmax=p,method="exhaustive")
+summary(subsetfit)
+plot(subsetfit,scale='r2') # suggests inclusion of
+                           # everything
+plot(subsetfit,scale='bic')
+plot(subsetfit,scale='Cp')
+plot(subsetfit,scale='adjr2')
+plot(1:p,summary(subsetfit)$bic,type="b",lwd=2)
+which.min(summary(subsetfit)$bic)
+
+# best subset selection: computatinal limitations.
+# You have to compare 2^p. With p=20, already more
+# than 1 million models to compare
+
+# 1B Stepwise selection
+# - forward stepwise selection
+# - backward stepwise selection
+
+# Forward:
+# - first fit M0 null model
+# - for k=0,...,p-1
+#   - consider all p-k models that increment model
+#     Mk by one predictor
+#   - select the best among the aboves --> Mk
+# - select the best model among M0,M1,...,Mp
+# In this way we reduce from 2^p models to compare,
+# to 1+p(p+1)/2 models. With p=20, roughly 200
+# Also: forward can be applied to high-dim problems
+# (p>n)
+
+# Backward:
+# - fit Mp the full model
+# - for k=p,...,1:
+#   - consider all k models that contain covariates
+#     in Mk, with the exception of one
+#   - select best model among the aboves, call M_{k-1}
+# - select best model among M0,M1,...,Mp
+
+# Hybrid methods: both forward and backward
+
+# on the credit dataset:
+# forward stepwise:
+subsetfit <- regsubsets(X,y,nvmax = p,
+                        method="forward")
+plot(subsetfit,scale='r2') 
+plot(subsetfit,scale='bic')
+plot(subsetfit,scale='Cp')
+plot(subsetfit,scale='adjr2')
+
+# backward stepwise:
+subsetfit <- regsubsets(X,y,nvmax = p,
+                        method="backward")
+plot(subsetfit,scale='r2') 
+plot(subsetfit,scale='bic')
+plot(subsetfit,scale='Cp')
+plot(subsetfit,scale='adjr2')
+
+# hybrid stepwise:
+subsetfit <- regsubsets(X,y,nvmax = p,
+                        method="seqrep")
+plot(subsetfit,scale='r2') 
+plot(subsetfit,scale='bic')
+plot(subsetfit,scale='Cp')
+plot(subsetfit,scale='adjr2')
+
+
+# Above: we have selected the best model according
+# to an estimated test error. Two approaches to
+# estimate test error:
+# a. adjust the training error to take into account
+#    the underestimation of the training error
+#    due to overfitting
+# b. direcly estimate the test error, using
+#    cross validation.
+
+# For a., we have 
+# - Cp estimate: (RSS+2*d*sigma.hat^2)/n,
+# where sigma.hat is the error variance of the full
+# model, and d is the num of variables used
+# - AIC (Akaike Information Criterium): 
+# (RSS+2*d*sigma.hat^2)/(n*sigma.hat^2)
+# Cp and AIC are proportional to each other -->
+# they are going to select the same best model
+# - BIC (Bayesian Information Criterium)
+# (RSS+log(n)*d*sigma.hat^2)/(n*sigma.hat^2)
+# Since log(n)>2 for n>7, than BIC penalizes more
+# more complicated models
+# - Adjusted R2
+
+# On b. You perform cross-validation to each model
+# under comparison and then you select the one
+# with smallest error. Often used a slightly different
+# rule, for which smallest model with estimated
+# test error within one standard error from
+# the lowest one (one-standard error rule)
+
+
+# 2. Shrinkage methods
+# Idea: instead of using a subset of the regressors
+# (like in subset selection), use all p regressors,
+# but push them (regularize them) towards the 0.
+# The two best known techniques for regularization
+# are callsed the ridge regression and lasso 
+# regression.
+# 2A. Ridge regression.
+# Instead of minimizing the RSS, now minimize
+# RSS + shrinkage penalty
+# Purpose of penalty: drive coeffs towards zero
+# Ridge shrinkage penalty = lambda*sum_1^n(beta^2)
+# where lambda is a tuning parameter 
+# (to be chosen with care)
+# Note: in the penalty intercept is not included
+# We implement ridge regression on Credit data
+library(glmnet) # for both ridge and lasso
+# Inputs:
+# - x: n x p matrix of predictors
+# - y: response variable nx1 vector (set family
+#   for regression or classification models)
+# - alpha: elastic net parameter.(alpha=1 for Lasso,
+#   alpha=0 for Ridge)
+# - lambda: tuning parameter sequence to test
+# Output:
+# - beta: pxn lambda matrix of coeff estimations
+#   where n is the number of lambdas I am using
+
+# fit the ridge regression if lambda is known
+# (if lambda --> 0, shrinkage penalty disappears
+#  and we are back to minimize RSS. At the other
+# extreme, lambda-->+inf, all coeffs --> 0)
+ridge.mod <- glmnet(X,y,alpha=0,lambda=1)
+coef(ridge.mod)
+
+# if we do not know lambda, it is possible to
+# use a grid of lambda values, and then select
+# lambda according to which the method is optimal
+# via cross-validation
+lambda.grid <- 10^seq(-6,5,length=100)
+ridge.mod <- glmnet(X,y,alpha=0,lambda=lambda.grid)
+dim(coef(ridge.mod)) # 12 coeffs x 100 lambdas used
+
+# plot of the coefficients:
+layout(1)
+matplot(ridge.mod$lambda,t(ridge.mod$beta),
+        type="l",lty=1,log="x")
+# the coefficients are in their original scale,
+# so not easy to compare them
+# --> compute standardized coefficients
+std.coeff <- ridge.mod$beta*apply(X,2,sd)
+matplot(ridge.mod$lambda,t(std.coeff),
+        type="l",lty=1,log="x",
+        ylab="Standardized coeff",
+        xlab="Lambda",lwd=2)
+
+# CV for finding the optimal lambda:
+# we can use the function cv.glmnet in the same pack
+cv.out <- cv.glmnet(X,y,alpha=0,lambda=lambda.grid)
+# by default: cross validation with 10 folds
+cv.out$cvm # mean cross-validated error for each lam
+cv.out$lambda.min # lambda that gives the min cvm
+cv.out$lambda.1se # largest value of lambda such
+  # that the cv-error is within 1 standard deviation
+  # from the minimum
+
+# Plot the cross-validation error (+- 1 std)
+# as a function of lambdas used
+plot(cv.out)
+# the two vertical lines correspond to
+# lambda.min and lambda.1se
+bestlam <- cv.out$lambda.1se
+log(bestlam)
+abline(v=log(bestlam),col="orange",lwd=3)
+
+# After selecting the best lamda, thanks to CV,
+# we refit the ridge regression using the function
+# predict:
+coef.ridge <-predict(cv.out,type="coefficients",
+                      s=bestlam)
+coef.ridge
+# we can compare them with LS solution:
+ls.coef <- coef(lm(y~X))
+
+cbind(coef.ridge,ls.coef)
+
+matplot(ridge.mod$lambda,t(std.coeff),
+        type="l",lty=1,log="x",
+        ylab="Standardized coeff",
+        xlab="Lambda",lwd=2)
+abline(v=bestlam,col="orange",lwd=3)
+
+
+# Little parenthesis. In lm the coefficient estimates
+# are scale invariant. If X --> cX, then
+# beta.hat --> beta.hat/c, so that X*beta.hat
+# remains the same in both scales
+# This is not the case for the ridge regression
+# --> that's why is better to standardize regressors
+# before using them in the ridge (done by glmnet)
+
+# As lambda increases, more penalty, more stringent
+# constraint to the estimation of betas. This
+# decreases the variability, but you are increasing
+# the bias. You can't say in advance if lm or ridge
+# will be the better
+
+# 2B. Lasso regression. Again the criterium to
+# minimize is RSS + shrinkage penalty
+# Now: Lasso shrinkage penalty 
+#       = lambda*sum_1^p(abs(betas))
+# The advantage of this new penalty (wrt to ridge)
+# is that it allows to perform variable selection,
+# since it fits exactly to zero some of the 
+# coefficients. As for ridge, lambda is crucial
+# Now: implement Lasso on Credit data
+lasso.mod <- glmnet(X,y,alpha=1,lambda=lambda.grid)
+dim(coef(lasso.mod)) # 12 x 100 values of lambda
+coef(lasso.mod)
+matplot(lasso.mod$lambda,t(lasso.mod$beta),
+        type="l",lty=1,lwd=2,log="x")
+# coeffs in the original scale. Better to standardize
+std.coeff <- lasso.mod$beta*apply(X,2,sd)
+matplot(lasso.mod$lambda,t(std.coeff),
+        type="l",lty=1,lwd=2,log="x")
+
+# with lambda sufficiently high, some of the
+# coefficients in lasso (but not in ridge) are
+# estimated to be zero:
+coef(lasso.mod)[,30]
+coef(ridge.mod)[,30]
+
+# CV for finding best lambda:
+cv.out <- cv.glmnet(X,y,alpha=1,lambda=lambda.grid)
+plot(cv.out)
+bestlam <- cv.out$lambda.1se
+log(bestlam)
+abline(v=log(bestlam),col=4,lwd=3)
+
+# after choice of best lambda, refit lasso:
+coef.lasso <- 
+  predict(cv.out,type="coefficients",s=bestlam)
+# to compare with LS solution:
+cbind(coef.ridge,coef.lasso,ls.coef)
+
+matplot(lasso.mod$lambda,t(std.coeff),
+        type="l",lty=1,lwd=2,log="x")
+abline(v=bestlam,col=4,lwd=3)
+
+
+# Compare lm, ridge, lasso and subset selection
+# on a simulated dataset
+n <- 5000 # sample size
+p <- 49   # number of regressors 
+k <- 30   # number of non-zero coeff 
+library(mvtnorm)
+X <- matrix(runif(n*p,2,3),nrow=n,ncol=p)
+dim(X)  # n x p regressor matrix, from uniform
+coeffs <- c(runif(k,10,20),rep(0,p-k))
+coeffs <- matrix(coeffs,nrow=p)
+dim(coeffs)
+y <- X%*%coeffs + rnorm(n) # simulated responses
+
+# LS:
+regr <- lm(y~X)
+summary(regr)
+coeff.ls <- coef(regr)
+
+# Ridge:
+lambda.grid <- 10^seq(7,-4,length=100)
+cv.out <- cv.glmnet(X,y,alpha=0,lambda=lambda.grid)
+bestlam <- cv.out$lambda.1se
+ridge.mod <- glmnet(X,y,alpha=0,lambda = lambda.grid)
+std.coeff <- ridge.mod$beta*apply(X,2,sd)
+matplot(ridge.mod$lambda,t(std.coeff),
+        type="l",lty=1,lwd=2,log="x")
+coeff.ridge <- predict(cv.out,type="coefficients",
+                       s=bestlam)
+coeff.ridge
+
+# Lasso:
+cv.out <- cv.glmnet(X,y,alpha=1,lambda=lambda.grid)
+bestlam <- cv.out$lambda.1se
+lasso.mod <- glmnet(X,y,alpha=1,lambda = lambda.grid)
+std.coeff <- lasso.mod$beta*apply(X,2,sd)
+matplot(lasso.mod$lambda,t(std.coeff),
+        type="l",lty=1,lwd=2,log="x")
+coeff.lasso <- predict(cv.out,type="coefficients",
+                       s=bestlam)
+coeff.lasso
+
+cbind(coeff.ls,coeff.lasso,coeff.ridge)
+
+# subset selection:
+subsetfit <- leaps::regsubsets(X,y,nvmax=p,
+                               method="forward")
+plot(subsetfit,scale="bic") # bic selects the correct model
+plot(subsetfit,scale="Cp") # it also includes
+  # other coeff
+
+# Exercise:
+# look at the Hitters dataset in ISLR
+# 1. Remove the missing data (na.omit)
+# 2. use salary as response, and the others
+#    as regressors
+# 3. with a training set of 200 observations
+#    (randomly selected) fit ridge and lasso.
+#    Choose best lambda, according to
+#    1 std error rule.
+# 4. Compute MSE on test set and choose the
+#    best model
+
+# Alternative representation of Lasso:
+# min RSS subject to sum(abs(betas))<=s
+
+# Alternative representation of Ridge:
+# min RSS subject to sum(betas^2)<=s
+
+# These alternative representations let us
+# appreciate the relationship to subset selection
+# min RSS subject to sum(betas<>0)<=s

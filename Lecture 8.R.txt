@@ -1,0 +1,325 @@
+# Ridge and Lasso can also be seen 
+# under a Bayesian point of view:
+# RSS = log-likelihood part of the model, where
+#     y assumed Gaussian
+# penalty: in the Ridge is proportional to a
+#     Gaussian prior on betas (independent)
+# penalty: in the Lasso is proportional to a
+#     Laplace prior on betas (independent)
+# --> Ridge and Lasso solutions from the
+#  optimization of RSS + penalty are equivalent
+#  to find the mode of the posterior distribution
+#  in the Bayesian model
+
+# 3. (1 = Subset selection, 2 = regularization)
+#  Dimension reduction methods
+# In 1. we have chosen only a portion of the 
+# Xs to be part of the model
+# In 2. We use all Xs, but we push coeffs to 0
+# Now: replace all Xs with some appropriately
+#  built linear combinations of the Xs
+# We will see two methods:
+# 3.1 PCR (Principal Component Regression)
+# 3.2 PLS (Partial Least Squares)
+
+# 3.1: use PCA (principal component analysis)
+#   to identify the M linear combinations 
+#   of the Xs. PCA is an unsupervised method
+#   of dimensionality reduction (chapter 10)
+#   Intuition: find that linear combination that
+#   is most variable --> first principal component
+#   (first linear combination of Xs)
+#   Then repeat this procedure: find a second
+#   linear combination most variable + 
+#   uncorrelatedness to the previous component,
+#   up to the point where you find M PCs
+#   To avoid PCs with exploding coefficient, 
+#   we impose the constraint sum_j phi_ij^2=1
+#   The observed values of Z1,Z2,...,Zm are 
+#   called principal component scores
+#   Then LM of y on Z1,Z2,...,Zm. 
+#   Often M<<p is enough to explain a big portion
+#   of the variability in Xs.
+#   Big assumption: linear combinations derive
+#   from an unsupervised method (we do not look
+#   at y) --> we are assuming that directions
+#   on which Xs are most variable are the same
+#   of those with strongest relationship btw
+#   Y and Xs
+#   Final word: first standardize Xs, otherwise
+#   more weight will be artificially given to 
+#   those Xs with higher scale
+
+library(pls) # bor both pcr and pls
+# For pcr use the function pcr
+# Inputs: scale parameter = always to TRUE
+# validation: the function performs CV. If set to 
+# "CV", you do a 10-fold CV to estimate test MSE
+pcr.fit <- pcr(Balance~.,data=Credit[,-1],
+               scale=TRUE,validation="CV")
+# a little problem with pcr: it uses all the
+# covariates (also qualitative ones in PCA).
+# But for regression would be interesting to use
+# quantitative Xs in PCA and qualitative Xs
+# separately
+pcr.fit$coefficients
+ 
+# Better: first do a PCA on quant Xs to find
+# PCs, and then run lm on these PCs + qualitative
+quant.cov.Credit <- Credit[,2:7]
+quali.cov.Credit <- Credit[,8:11]
+
+quant.cov.Credit.scale <- scale(quant.cov.Credit)
+credit.pc <- prcomp(quant.cov.Credit.scale)
+# PCA with the above, only on quantitative
+
+# screeplot
+sd <- credit.pc$sdev
+layout(c(1,2))
+plot(sd^2/sum(sd^2),type="o",xlab="Component",
+     ylab="proportion of variance")
+# cumulative screeplot:
+plot(cumsum(sd^2)/sum(sd^2),type="o",
+     xlab="Component",
+     ylab="proportion of variance")
+abline(h=0.9,col="grey",lwd=2)
+#--> keep M=4 PCs to include at least 90% of
+# variability of Xs
+PCscores <- credit.pc$x[,1:4]
+dim(PCscores)
+CreditPCRdata <- data.frame(Credit$Balance,
+                            PCscores,
+                            quali.cov.Credit)
+names(CreditPCRdata)  
+colnames(CreditPCRdata)[1] <- "Balance"  
+
+CreditPCR <- lm(Balance~.,data=CreditPCRdata)
+summary(CreditPCR)
+# PC1, PC3 and PC4 arehave an impact on Y,
+# PC2 does not have any impact
+pcs <- credit.pc$rotation
+layout(matrix(1:4,nr=2))
+barplot(pcs[,1],col=rainbow(6),main="PC1")
+barplot(pcs[,2],col=rainbow(6),main="PC2")
+barplot(pcs[,3],col=rainbow(6),main="PC3")
+barplot(pcs[,4],col=rainbow(6),main="PC4")
+# income, limit and rating have a positive
+# impact on y. Age and education a negative one
+# Interpretation usually not easy.
+
+# 3.2 Partial Least Squares (PLS)
+# Idea: overcome main limitation of PCR, that
+# is its unsupervised nature
+# Not necessarily true that most variable
+# linear combinations are also those most
+# related to y.
+# PLS --> supervised alternative to PCR
+# How it works: first standardize Xs
+# Then, compute Z1 by regressing Y on single
+# Xs (phi_11 results from lm(y~X1))
+# (phi_21 results from lm(y~X2))
+# --> more weight will be given to those Xs
+# most related to y
+# To identify Z2, we first adjust variables for
+# Z1, by regressing each variable X on Z1 and
+# take the residual 
+# (phi_12 comes from lm(X1~Z1)-->resid1
+#  --> lm(y~resid1))
+# (phi_22 comes from lm(X2~Z1)-->resid2
+#  --> lm(y~resid2))
+# As with PCR, the num M of linear combs to
+# keep are chosen by CV
+
+# As an example again on Credit
+pls.fit <- plsr(Balance~.,data=Credit[,-1],
+                scale=TRUE,validation="CV")
+# Now we do not need to separate qualitative
+# Xs, since linear combinations are based on
+# y, and not on the variability of Xs
+
+summary(pls.fit)
+
+# CV to see behaviour of test error and 
+# decide on M
+layout(1)
+validationplot(pls.fit,val.type = "MSEP")
+# CV error is flat after using 3-4 components
+# we may decide to use 4 components:
+pls.fit <- plsr(Balance~.,data=Credit[,-1],
+                scale=TRUE,ncomp = 4)
+# coefficients of components:
+pls.fit$coefficients
+
+# coefficients in lm
+pls.fit$Yloadings
+
+barplot(pls.fit$coefficients[,,1],main="Comp1")
+barplot(pls.fit$coefficients[,,2],main="Comp2")
+# again: difficult to interpret and
+# also not similar to PCR
+
+# A final word: both PCR and PLS are not methods
+# to be used in high-dimensional problems,
+# where p>n, since even if you use M<p 
+# linear combinations, these are derived
+# from all Xs
+
+# Parenthesis: regularized methods of Lasso and
+# Ridge can also be used for classification
+# problems --> regularized logistic regression
+# using the same function cv.glmnet and 
+# glmnet by specifying the additional input
+# family="binomial"
+
+
+# Alternative methods to extend lm towards
+# the modelling of non linear relationship 
+# between Y and Xs (Chapter 7):
+# 1. polynomial regression. Add X^j, j=1,...,k
+#    to lm
+# 2. step function. cut the range of X into
+#    k regions --> caterical variable to be
+#    used in lm --> fit a piecewise constant
+#    function
+# 3. regression splines. cut range of X into
+#    regions --> polynomial regression within
+#    each region + contraint to let these
+#    polynomials to join smoothly among
+#    regions
+# 4. smoothing splines. Similar to regression
+#    splines, but results from a different
+#    starting point: minimizing residual sum
+#    of square under a penality related to 
+#    smoothness
+# 5. local regression. Similar to splines, but
+#    with overlapping regions
+# 6. generalized additive models (GAM): includes
+#    previous ones and extend them to multiple
+#    Xs (from 1 to 5, only one X is allowed)
+
+#########################
+# 1 polynomial regression
+#########################
+
+# Let us simulate some data:
+n <- 300 # sample size
+set.seed(123456)
+x <- rnorm(n)  # my single x
+y <- 3*x-0.5*x^2*exp(x/2)+
+  (x/30)^3 + sin(x^2) + rnorm(n,sd=0.5)
+
+# we define "ascissa" for plot of fitted fcn
+ascissa <- seq(min(x),max(x),length=200)
+
+plot(x,y,lwd=2)
+
+# we also generate some test data 
+# (from same data generating process)
+ntest <- 100 # test sample size
+xtest <- rnorm(ntest) 
+ytest <- 3*xtest-0.5*xtest^2*exp(xtest/2)+
+  (xtest/30)^3 + sin(xtest^2) + 
+  rnorm(ntest,sd=0.5)
+
+points(xtest,ytest,col=4,lwd=2)
+
+# polynomial regression
+k <- 10
+polynomials <- poly(ascissa,k,raw=TRUE)
+dim(polynomials) # matrix with col i ascissa^i,
+#  i=1,...,k
+matplot(polynomials,type="l",ylim=c(-20,+20),
+        lwd=2)
+
+poly.model <- lm(y~poly(x,k,raw=TRUE))
+summary(poly.model)
+
+yhat.poly <- predict(poly.model,
+          newdata=data.frame(x=ascissa))
+plot(x,y,lwd=2)
+lines(ascissa,yhat.poly,lwd=3,col=2)
+
+# compute test MSE:
+yhat.poly.test <- predict(poly.model,
+        newdata=data.frame(x=xtest))
+MSE.poly <- mean((yhat.poly.test-ytest)^2)
+MSE.poly
+
+#####################
+# 2. STEP FUNCTIONS #
+#####################
+# We break the range of X into K bins
+# (regions). Starting point are cutpoints
+# c1, c2,..., cK --> we create K+1 new variables
+# C0(X) = 1(X<c1) (1 if X<c1, 0 otherwise)
+# C1(X) = 1(c1<=X<c2) (1 if c1<=X<c2, 0 otherwise)
+# ...
+# CK(X) = 1(X>cK) (1 if X>cK, 0 otherwise)
+# (dummy variables)
+# Note: sum_k Ck(X) = 1
+# --> use lm(y~C1+...+CK)
+
+# first, we need to identify the knots (cutpoints)
+nknots <- 6
+knots <- seq(-3,3,length=nknots) 
+plot(x,y,lwd=2)
+for(ii in 1:nknots)abline(v=knots[ii])
+
+# then use cut function to create the new vars:
+cut(x,breaks=knots)
+# and use lm:
+fit.step <- lm(y~cut(x,breaks=knots))
+summary(fit.step)
+
+yhat.step <- predict(fit.step,
+        newdata=data.frame(x=ascissa))
+lines(ascissa,yhat.step,col=2,lwd=3)
+
+# test MSE:
+yhat.step.test <- predict(fit.step,
+          newdata=data.frame(x=xtest))
+MSE.step <- mean((yhat.step.test-ytest)^2)
+MSE.step
+
+# Both polynomial regression and step functions
+# are part of basis function approach:
+# replace X with functions of X: b1(X),b2(X),
+# bK(X), and use these in lm
+# In poly regr: bj(X) = X^j
+# In step: bj(X) = 1(cj<=X<c_{j+1})
+# Another common choice for basis function is
+# the splines:
+
+#########################
+# 3. Regression splines #
+#########################
+# Idea: fit local polynomial regressions
+# within regions of X
+# Step function: special case with polynomial
+# of degree 0
+# + contraint that resulting fitted curve 
+# is smooth (continuous and with continuous
+# first and second derivative)
+# Usual choice: cubic spline 
+# (cubic poly regression locally)
+# df: 4*(K+1) - 3*K = 4+K
+# More generally in a d-degree spline,
+# you require continuity of derivates up to
+# order d-1
+# A cubic spline with K knots can be performed
+# with lm on X, X^2, X^3 + truncated power basis
+# functions :
+# h(X,knot) = (x-knot)^3 if x>knot, 0 otherwise
+# we have K h(X,knot), one for each knot
+
+library(splines)
+bs(x,knots=knots) # matrix n x (K+3) mat of regr
+
+# fit with lm:
+d <- 3
+fit.bs <- lm(y~bs(x,knots=knots,degree=d))
+summary(fit.bs)
+yhat.bs <- predict(fit.bs,
+                   newdata=data.frame(x=ascissa))
+plot(x,y,lwd=2)
+lines(ascissa,yhat.bs,col=2,lwd=3)
